@@ -911,6 +911,48 @@ html:not(.dark) .wall::before{opacity:.3}
 @media(max-width:520px){.palette-label{display:none}.sidefoot{padding:6px 1px;gap:6px}.palette-block{gap:3px}.palette-row{justify-content:center;gap:3px}.wallpaper-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:3px}.wallpick{height:13px;border-radius:4px}.sw{width:9px;height:9px}}
 .sh-t .sub{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 @media(prefers-reduced-motion:reduce){.wall::before,.wall i{animation:none!important;transition:none!important}}
+/* Premium home screen: layered glass, intentional type scale, and a soft 3D centerpiece. */
+.hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(250px,.8fr);align-items:center;gap:clamp(18px,4vw,64px);min-height:320px;padding:clamp(28px,5vw,62px);border-radius:30px;background:linear-gradient(120deg,color-mix(in srgb,var(--acc) 16%,var(--glass2)),color-mix(in srgb,var(--glass2) 76%,transparent) 55%,rgba(151,132,255,.09));border-color:rgba(255,255,255,.27);box-shadow:inset 0 1px 0 rgba(255,255,255,.34),0 22px 64px rgba(8,14,35,.16);isolation:isolate}
+.hero::before{content:"";position:absolute;z-index:-1;inset:0;border-radius:inherit;background:linear-gradient(115deg,rgba(255,255,255,.09),transparent 38%,rgba(255,255,255,.025));pointer-events:none}
+.hero::after{z-index:-1;width:310px;height:310px;right:3%;top:50%;transform:translateY(-50%);border-color:rgba(255,255,255,.18);box-shadow:0 0 0 26px rgba(255,255,255,.025),0 0 0 62px rgba(255,255,255,.02),0 0 0 105px rgba(255,255,255,.014)}
+.hero-copy{position:relative;z-index:2;max-width:600px;animation:app-enter .65s var(--ease-out) both}
+.hero-eyebrow{display:flex;align-items:center;gap:9px;margin-bottom:17px;color:color-mix(in srgb,var(--txt) 65%,var(--acc));font-size:10px;font-weight:800;letter-spacing:.17em}
+.hero-eyebrow i{width:8px;height:8px;border-radius:50%;background:#51e2a1;box-shadow:0 0 14px rgba(81,226,161,.8);animation:live-pulse 2s ease-in-out infinite}
+@keyframes live-pulse{50%{box-shadow:0 0 0 5px rgba(81,226,161,.11),0 0 20px rgba(81,226,161,.65);opacity:.75}}
+.hero h1{max-width:720px;font-size:clamp(38px,5.4vw,68px);font-weight:780;line-height:.99;letter-spacing:-.065em;text-wrap:balance}
+.hero h1 span{background:linear-gradient(100deg,#fff 2%,#c8d6ff 42%,#a4b7ff 78%,#f4c5e8);background-clip:text;-webkit-background-clip:text;color:transparent}
+.hero p{max-width:490px;margin-top:17px;color:color-mix(in srgb,var(--txt) 72%,transparent);font-size:15px;line-height:1.7}
+.hero .quick{justify-content:flex-start;gap:9px;margin-top:24px}
+.hero .qb{height:36px;padding:0 15px;border-radius:12px;border-color:rgba(255,255,255,.19);background:rgba(255,255,255,.095);color:var(--txt);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:inset 0 1px rgba(255,255,255,.15),0 5px 15px rgba(0,0,0,.08)}
+.hero .qb:hover{background:var(--acc);border-color:transparent;color:#fff;box-shadow:0 8px 22px color-mix(in srgb,var(--acc) 32%,transparent)}
+.hero-caption{display:flex;align-items:center;gap:7px;margin-top:18px;color:color-mix(in srgb,var(--txt) 57%,transparent);font-size:10px;font-weight:550}.hero-caption b{opacity:.5}.hero-spark{color:#ffd37e;font-size:14px}
+.hero-art{position:relative;z-index:1;display:grid;place-items:center;min-width:0;height:280px;perspective:900px;isolation:isolate;animation:app-enter .8s .1s var(--ease-out) both}
+.hero-art::before{content:"";position:absolute;z-index:-1;width:72%;height:72%;border-radius:50%;background:radial-gradient(circle,rgba(103,154,255,.27),rgba(160,111,255,.13) 40%,transparent 72%);filter:blur(28px);animation:hero-aura 7s ease-in-out infinite alternate}
+@keyframes hero-aura{to{transform:scale(1.22);opacity:.68}}
+.hero-orbit{position:absolute;border:1px solid rgba(220,231,255,.24);border-radius:50%;transform:rotateX(66deg) rotateZ(-25deg);box-shadow:0 0 24px rgba(132,171,255,.09),inset 0 0 20px rgba(255,255,255,.025)}
+.orbit-one{width:245px;height:245px;animation:orbit-turn 22s linear infinite}.orbit-two{width:198px;height:198px;transform:rotateX(68deg) rotateZ(39deg);border-color:rgba(218,195,255,.3);animation:orbit-turn 17s linear infinite reverse}.orbit-three{width:286px;height:286px;transform:rotateX(72deg) rotateZ(80deg);border-style:dashed;border-color:rgba(217,228,255,.12);animation:orbit-turn 32s linear infinite}
+@keyframes orbit-turn{to{rotate:1turn}}
+.hero-crystal{position:relative;display:grid;place-items:center;width:136px;height:136px;border:1px solid rgba(255,255,255,.55);border-radius:38px;background:linear-gradient(145deg,rgba(255,255,255,.4),rgba(255,255,255,.08) 42%,rgba(116,154,255,.23));backdrop-filter:blur(25px) saturate(165%);-webkit-backdrop-filter:blur(25px) saturate(165%);box-shadow:inset 0 2px 2px rgba(255,255,255,.52),inset 0 -14px 34px rgba(77,109,210,.14),0 28px 64px rgba(0,0,0,.25),0 0 45px rgba(124,161,255,.22);transform:rotate(-9deg) rotateY(-13deg);animation:crystal-float 5.2s ease-in-out infinite}
+.hero-crystal::before{content:"";position:absolute;inset:8px;border:1px solid rgba(255,255,255,.22);border-radius:31px;pointer-events:none}
+.hero-crystal-inner{display:grid;place-items:center;width:75px;height:75px;border-radius:25px;background:linear-gradient(145deg,#67b3ff,#626bff 58%,#b46aff);color:#fff;box-shadow:0 12px 30px rgba(58,112,255,.42),inset 0 1px 1px rgba(255,255,255,.6)}.hero-crystal-inner svg{width:43px;height:43px;stroke-width:1.55}
+@keyframes crystal-float{0%,100%{transform:translateY(0) rotate(-9deg) rotateY(-13deg)}50%{transform:translateY(-9px) rotate(-5deg) rotateY(8deg)}}
+.hero-float{position:absolute;display:flex;align-items:center;gap:9px;padding:10px 13px;border:1px solid rgba(255,255,255,.29);border-radius:14px;background:rgba(35,39,62,.48);backdrop-filter:blur(26px) saturate(175%);-webkit-backdrop-filter:blur(26px) saturate(175%);box-shadow:inset 0 1px rgba(255,255,255,.2),0 12px 30px rgba(0,0,0,.2);color:#f4f5ff;white-space:nowrap}
+.hero-float b,.hero-float small{display:block}.hero-float b{font-size:10px}.hero-float small{margin-top:2px;color:rgba(235,238,255,.64);font-size:8px}.float-top{top:24px;right:-2px;animation:float-card 5.5s ease-in-out infinite}.float-bottom{left:-18px;bottom:25px;animation:float-card 6.5s .8s ease-in-out infinite reverse}.float-dot{width:8px;height:8px;border-radius:50%;background:#40e091;box-shadow:0 0 11px rgba(64,224,145,.8)}.float-glyph{display:grid;place-items:center;width:26px;height:26px;border-radius:9px;background:rgba(184,112,255,.25);color:#e8c9ff;font-size:16px}
+@keyframes float-card{0%,100%{translate:0 0}50%{translate:0 -7px}}
+.hero-glint{position:absolute;width:4px;height:4px;border-radius:50%;background:#fff;box-shadow:0 0 12px 3px rgba(210,223,255,.66);animation:glint 3s ease-in-out infinite}.glint-one{top:34px;left:16%}.glint-two{right:12%;bottom:52px;animation-delay:1.4s}@keyframes glint{0%,100%{opacity:.25;scale:.7}50%{opacity:1;scale:1.4}}
+.sec{margin-top:30px}.sec>span{font-size:10px;letter-spacing:.11em}
+#recentBox{padding:0 2px}.rec{gap:9px}.rchip{border-radius:14px;padding:6px 12px 6px 6px;background:rgba(255,255,255,.09);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:inset 0 1px rgba(255,255,255,.14),0 4px 14px rgba(0,0,0,.06)}.rchip:hover{transform:translateY(-3px) scale(1.015);box-shadow:0 10px 24px rgba(0,0,0,.13)}
+.fcard{position:relative;min-height:164px;padding:21px;border-radius:19px;background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.045));backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%);box-shadow:inset 0 1px rgba(255,255,255,.2),0 13px 30px rgba(0,0,0,.1)}
+.fcard::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(320px circle at var(--mx,50%) var(--my,0%),color-mix(in srgb,var(--acc) 14%,transparent),transparent 58%);opacity:0;transition:opacity .35s ease}.fcard:hover::before{opacity:1}.fcard .ico{position:relative;width:42px;height:42px;border:1px solid rgba(255,255,255,.23);box-shadow:0 8px 19px color-mix(in srgb,var(--acc) 19%,transparent)}.fcard b{font-size:14px;letter-spacing:-.01em}.fcard p{font-size:11px;line-height:1.65;color:color-mix(in srgb,var(--txt) 64%,transparent)}
+html:not(.dark) .hero{background:linear-gradient(120deg,rgba(255,255,255,.7),rgba(242,247,255,.52) 55%,rgba(220,228,255,.48));border-color:rgba(255,255,255,.87);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 22px 58px rgba(62,82,137,.11)}
+html:not(.dark) .hero h1 span{background-image:linear-gradient(100deg,#327fe4,#7673ed 56%,#c264bb)}html:not(.dark) .hero p{color:#646e85}html:not(.dark) .hero-eyebrow{color:#64708a}html:not(.dark) .hero-caption{color:#717c94}
+html:not(.dark) .hero .qb{background:rgba(255,255,255,.56);border-color:rgba(255,255,255,.86);color:#38435e;box-shadow:inset 0 1px rgba(255,255,255,.95),0 5px 13px rgba(56,73,119,.09)}html:not(.dark) .hero .qb:hover{background:var(--acc);color:#fff}
+html:not(.dark) .hero-crystal{background:linear-gradient(145deg,rgba(255,255,255,.78),rgba(255,255,255,.33) 42%,rgba(116,154,255,.25));border-color:rgba(255,255,255,.9);box-shadow:inset 0 2px 2px rgba(255,255,255,.95),0 28px 58px rgba(80,103,169,.17),0 0 45px rgba(124,161,255,.18)}
+html:not(.dark) .hero-float{background:rgba(255,255,255,.64);border-color:rgba(255,255,255,.9);color:#303950;box-shadow:inset 0 1px rgba(255,255,255,.95),0 12px 30px rgba(63,81,132,.14)}html:not(.dark) .hero-float small{color:#78839a}
+html:not(.dark) .fcard{background:linear-gradient(145deg,rgba(255,255,255,.66),rgba(236,243,255,.48));box-shadow:inset 0 1px rgba(255,255,255,.95),0 13px 30px rgba(62,82,137,.09)}html:not(.dark) .fcard p{color:#68738a}
+@media(max-width:760px){.hero{grid-template-columns:minmax(0,1fr) minmax(180px,.66fr);min-height:270px;padding:clamp(22px,4vw,36px);gap:12px}.hero-art{height:220px}.hero-crystal{width:112px;height:112px;border-radius:32px}.hero-crystal-inner{width:64px;height:64px}.orbit-one{width:196px;height:196px}.orbit-two{width:160px;height:160px}.orbit-three{width:226px;height:226px}.float-top{right:-8px}.float-bottom{left:-8px}.hero h1{font-size:clamp(34px,5vw,50px)}}
+@media(max-width:520px){.hero{grid-template-columns:1fr;min-height:0;padding:25px 20px}.hero-art{height:140px;margin-top:8px}.hero-orbit.orbit-three{display:none}.orbit-one{width:150px;height:150px}.orbit-two{width:125px;height:125px}.hero-crystal{width:91px;height:91px;border-radius:27px}.hero-crystal-inner{width:53px;height:53px;border-radius:18px}.hero-crystal-inner svg{width:32px;height:32px}.hero-float{padding:7px 9px}.float-top{top:4px;right:4px}.float-bottom{left:0;bottom:0}.hero h1{font-size:clamp(34px,10vw,48px)}.hero p{margin-top:12px;font-size:13px}.hero .quick{margin-top:17px}}
+@supports not (backdrop-filter:blur(1px)){.hero,.fcard,.rchip,.hero-float{background:rgba(40,43,68,.92)}}
 @supports not (backdrop-filter:blur(1px)){.win,.side,.menubar,.dock,.profile-cover,.overview-panel,.avatar-panel,.wearing-panel,.profile-tabs,.menu,.sheet,.alert,.toast{background-color:rgba(31,33,52,.94)}}
 @media(max-width:760px){.win.zoom{left:0!important;top:0!important;width:100vw!important;height:100dvh!important;border-radius:0}.win:not(.drag){transition:opacity .28s ease,transform .35s var(--ease-spring)}.dock:hover{transform:translateX(-50%)}.overview-outfit:hover,.fcard:hover{transform:translateY(-2px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important;transition-delay:0ms!important}}
@@ -937,10 +979,20 @@ html:not(.dark) .wall::before{opacity:.3}
   <div class="content" id="content">
    <section class="tab show" id="t-start">
     <div class="hero">
-     <div class="logo" id="logo"></div>
-     <h1>Avatar Finder</h1>
-     <p>Roblox-Profile, Items, Outfits, Spiele und Gruppen – schnell und ohne Anmeldung.</p>
-     <div class="quick"><button class="qb" data-q="Roblox">Roblox</button><button class="qb" data-q="builderman">builderman</button><button class="qb" data-q="1">ID 1</button></div>
+     <div class="hero-copy">
+      <div class="hero-eyebrow"><i></i> ROBLOX PROFILE EXPLORER</div>
+      <h1>Every profile.<br><span>More to discover.</span></h1>
+      <p>Explore avatars, saved outfits, games and groups — all in one beautifully clear view.</p>
+      <div class="quick"><button class="qb" data-q="Roblox">Roblox</button><button class="qb" data-q="builderman">builderman</button><button class="qb" data-q="1">ID 1</button></div>
+      <div class="hero-caption"><span class="hero-spark">✦</span> No login required <b>·</b> Search by username or ID</div>
+     </div>
+     <div class="hero-art" aria-hidden="true">
+      <div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div><div class="hero-orbit orbit-three"></div>
+      <div class="hero-crystal"><div class="hero-crystal-inner" id="logo"></div></div>
+      <div class="hero-float float-top"><span class="float-dot green"></span><span><b>Live presence</b><small>Profile insights</small></span></div>
+      <div class="hero-float float-bottom"><span class="float-glyph">✦</span><span><b>Outfits &amp; items</b><small>One quick search</small></span></div>
+      <div class="hero-glint glint-one"></div><div class="hero-glint glint-two"></div>
+     </div>
     </div>
     <div id="recentBox" style="display:none">
      <div class="sec"><span>Zuletzt gesucht</span><button class="lnkbtn" id="recClear">Löschen</button></div>
