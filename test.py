@@ -634,17 +634,132 @@ pre.raw{padding:18px;border-radius:18px;background:var(--solid);border:1px solid
 @keyframes toastIn{from{opacity:0;transform:translateX(40px) scale(.95)}}
 @keyframes drift{to{transform:translate(4vw,3vh) scale(1.08)}}
 
+/* ---------- UI polish ---------- */
+html{--acc:#5865f2;--txt:#20243a;--sub:#70758a;--glass:rgba(250,251,255,.82);--glass2:rgba(255,255,255,.62);--solid:rgba(255,255,255,.74);--rim:rgba(255,255,255,.94);--line:rgba(38,45,75,.1);--bg:#e9edf7;--sh:0 24px 70px rgba(41,52,99,.18)}
+html.dark{--txt:#f4f5ff;--sub:#a5aac0;--glass:rgba(25,28,43,.88);--glass2:rgba(37,41,60,.72);--solid:rgba(255,255,255,.075);--rim:rgba(255,255,255,.12);--line:rgba(255,255,255,.1);--bg:#111321;--sh:0 28px 80px rgba(0,0,0,.5)}
+body{height:100dvh}
+.wall .b1{background:#8798ff}.wall .b2{background:#ffa4cb}.wall .b3{background:#76d9c0}
+.menubar{height:36px;padding-inline:clamp(10px,2vw,28px);background:var(--glass);border-bottom-color:var(--line)}
+.mb{padding:4px 11px}.mb.b{color:var(--acc)}
+.win{top:52px;width:min(1260px,calc(100vw - 48px));height:calc(100dvh - 142px);min-height:0;border-radius:24px;background:var(--glass);box-shadow:var(--sh),inset 0 1px 0 var(--rim)}
+.side{width:242px;padding:20px 14px 16px;background:rgba(245,247,253,.55)}
+html.dark .side{background:rgba(16,18,30,.35)}
+.lights{padding-bottom:22px}.lights b{width:12px;height:12px}
+.ni{height:40px;border-radius:11px}.nav{gap:4px}
+#sel{height:40px;border-radius:11px;background:color-mix(in srgb,var(--acc) 13%,transparent);box-shadow:inset 3px 0 var(--acc)}
+.ni .ico{border-radius:8px}
+.tb{height:68px;padding-inline:clamp(14px,2.4vw,30px);gap:14px;background:rgba(255,255,255,.12)}
+.tb h2{font-size:15px;letter-spacing:-.01em}
+.pill{width:min(440px,58%);height:42px;padding-left:15px;background:var(--solid);box-shadow:0 3px 12px rgba(32,40,80,.04)}
+.go{height:32px;padding-inline:18px;border-radius:10px;background:var(--acc);box-shadow:0 5px 12px color-mix(in srgb,var(--acc) 26%,transparent)}
+.content{padding:clamp(20px,3.2vw,42px);scrollbar-gutter:stable}
+.hero{position:relative;isolation:isolate;overflow:hidden;text-align:left;padding:clamp(25px,4vw,48px);margin:0 0 30px;border:1px solid color-mix(in srgb,var(--acc) 16%,var(--line));border-radius:26px;background:linear-gradient(115deg,color-mix(in srgb,var(--acc) 12%,var(--glass2)),var(--glass2) 65%);box-shadow:inset 0 1px 0 var(--rim)}
+.hero::after{content:"";position:absolute;z-index:-1;width:260px;height:260px;right:-65px;top:-115px;border-radius:50%;border:1px solid color-mix(in srgb,var(--acc) 23%,transparent);box-shadow:0 0 0 28px color-mix(in srgb,var(--acc) 4%,transparent),0 0 0 58px color-mix(in srgb,var(--acc) 3%,transparent)}
+.logo{width:52px;height:52px;margin:0 0 18px;border-radius:16px;background:linear-gradient(145deg,var(--acc),color-mix(in srgb,var(--acc) 62%,#b67aff));box-shadow:0 10px 24px color-mix(in srgb,var(--acc) 25%,transparent)}
+.logo svg{width:27px;height:27px}
+.hero h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.045em;line-height:1.05}
+.hero p{font-size:14px;max-width:540px;margin-top:10px;line-height:1.65}
+.quick{justify-content:flex-start;gap:9px;margin-top:22px}
+.qb{padding:8px 14px;border-radius:11px;font-size:12.5px;background:var(--solid);box-shadow:none}
+.qb:hover{box-shadow:0 7px 18px color-mix(in srgb,var(--acc) 18%,transparent)}
+.sec{margin:28px 2px 13px;color:var(--txt);font-size:12px;letter-spacing:.04em}
+.sec>span{color:var(--sub)}
+.grid{gap:14px}.grid.w{grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr))}
+.card{border-radius:17px;background:var(--glass2);box-shadow:inset 0 1px 0 var(--rim),0 4px 18px rgba(20,30,60,.045)}
+.card:hover{box-shadow:inset 0 1px 0 var(--rim),0 14px 28px rgba(30,40,80,.12)}
+.fcard{padding:19px;min-height:150px}
+.fcard .ico{width:38px;height:38px;border-radius:12px;margin-bottom:16px}
+.fcard b{font-size:14px}.fcard p{line-height:1.55;margin-top:6px}
+.rchip{border-radius:13px;padding:7px 13px 7px 7px;background:var(--glass2);box-shadow:none}
+.rchip img,.ph2{width:34px;height:34px}
+.prof{gap:clamp(18px,3vw,34px);padding:clamp(18px,3vw,30px)}
+.avbox{width:min(270px,34%);border-radius:20px}
+.pinfo h1{font-size:clamp(25px,3vw,34px)}
+.stat{border-radius:13px}.stat b{font-size:20px}
+.btn{border-radius:11px;box-shadow:none}.btn.pri{box-shadow:0 6px 14px color-mix(in srgb,var(--acc) 24%,transparent)}
+.sheet{border-radius:22px}.dock{bottom:14px;gap:7px;padding:9px 12px;border-radius:20px;background:var(--glass);box-shadow:0 12px 36px rgba(25,35,70,.16),inset 0 1px 0 var(--rim)}
+.di{border-radius:16px;box-shadow:0 4px 10px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.45)}
+.iconbtn:focus-visible,.go:focus-visible,.btn:focus-visible,.qb:focus-visible,.ni:focus-visible,.di:focus-visible,.lnkbtn:focus-visible{outline:3px solid color-mix(in srgb,var(--acc) 60%,transparent);outline-offset:2px}
+button{ -webkit-tap-highlight-color:transparent }
+
 @media(max-width:760px){
- html{--base:36px}
- .side{position:absolute;z-index:6;left:0;top:0;bottom:0;background:var(--glass)}
- .pill{width:auto;flex:1}
- .tb h2{display:none}
- .win{height:calc(100vh - 120px)}
- .prof{padding:16px}
- .dock{gap:5px;padding:6px 7px;border-radius:20px}
- .content{padding:16px}
- .sh-img{width:60px;height:60px}
+ html{--base:38px}
+ .menubar{height:34px}.mb:not(:first-child):not([data-m="help"]){display:none}
+ .win{top:42px!important;left:8px!important;width:calc(100vw - 16px)!important;height:calc(100dvh - 112px)!important;border-radius:20px}
+ .side{background:var(--glass);box-shadow:8px 0 24px rgba(0,0,0,.08)}
+ .tb{height:62px;padding-inline:12px;gap:8px}.tb h2{display:block;font-size:13px;max-width:92px}
+ .pill{width:auto;flex:1;height:40px;padding-left:10px;gap:6px}.pill input{font-size:12px}.go{padding-inline:12px;font-size:12px}
+ .content{padding:16px 14px 24px}
+ .hero{padding:24px 20px;border-radius:20px;margin-bottom:24px}.hero::after{right:-150px}
+ .logo{width:44px;height:44px;margin-bottom:15px;border-radius:14px}
+ .hero p{max-width:90%;font-size:13px}
+ .quick{gap:7px;margin-top:17px}.qb{padding:7px 11px}
+ .sec{margin-top:22px}
+ .grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px}
+ .grid.w{grid-template-columns:1fr}
+ .fcard{min-height:unset;padding:16px}.fcard .ico{margin-bottom:10px}
+ .prof{padding:14px;gap:17px}.avbox{width:130px;max-width:38%;border-radius:16px}.pinfo{min-width:min(180px,55%)}
+ .dock{gap:5px;padding:6px 8px;bottom:8px;max-width:calc(100vw - 12px);overflow-x:auto}
+ .di{border-radius:12px}.di .tip{display:none}.dsep{height:30px;margin:0}
+ .sh-head{padding:14px}.sh-body{padding:14px}
 }
+@media(max-width:430px){
+ .menubar{padding-inline:6px}.mb{padding-inline:7px;font-size:11px}.mbr{gap:3px;font-size:11px}
+ #clock{display:none}
+ .win{height:calc(100dvh - 100px)!important}
+ .tb{gap:4px}.tb h2{max-width:55px;font-size:12px}.iconbtn{width:29px;height:29px}
+ .pill{gap:4px}.pill input{font-size:11px}.go{padding-inline:9px}
+ .content{padding:12px 10px 18px}
+ .hero{padding:21px 17px}.hero h1{font-size:29px}.hero::after{width:190px;height:190px;right:-125px;top:-90px}
+ .qb{font-size:11px;padding:7px 9px}
+ .dock{gap:4px}.di{width:32px;height:32px}.dsep{height:25px}
+ .prof{display:block}.avbox{width:150px;max-width:100%;margin:0 auto 18px}.pinfo{min-width:0}.pinfo h1{font-size:25px}
+ .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* ---------- Dark Roblox profile dashboard, inspired by the reference ---------- */
+html{--acc:#168df5;--txt:#f2f3fb;--sub:#a1a4b9;--glass:rgba(33,34,54,.96);--glass2:rgba(49,50,72,.88);--solid:rgba(89,91,117,.34);--rim:rgba(255,255,255,.11);--line:rgba(223,225,255,.18);--bg:#191a2b;--sh:0 24px 64px rgba(0,0,0,.46);color-scheme:dark;background:#191a2b}
+html.dark{--txt:#f2f3fb;--sub:#a1a4b9;--glass:rgba(33,34,54,.96);--glass2:rgba(49,50,72,.88);--solid:rgba(89,91,117,.34);--rim:rgba(255,255,255,.11);--line:rgba(223,225,255,.18);--bg:#191a2b;--sh:0 24px 64px rgba(0,0,0,.46);color-scheme:dark}
+html:not(.dark){--txt:#25283a;--sub:#686d80;--glass:rgba(244,246,253,.97);--glass2:rgba(255,255,255,.88);--solid:rgba(92,103,139,.12);--rim:rgba(255,255,255,.9);--line:rgba(51,61,99,.15);--bg:#e8ebf4;--sh:0 24px 64px rgba(34,43,77,.18);color-scheme:light}
+html:not(.dark) body{background:radial-gradient(ellipse at 90% 100%,rgba(255,172,86,.18),transparent 26%),radial-gradient(ellipse at 28% 110%,rgba(156,91,255,.16),transparent 30%),#e8ebf4;color:var(--txt)}
+html:not(.dark) .side{background:linear-gradient(180deg,rgba(77,80,111,.78),rgba(48,50,75,.94));color:#fff}
+html:not(.dark) .profile-cover{background:linear-gradient(110deg,rgba(74,66,91,.83),rgba(43,52,79,.94) 68%,rgba(31,83,132,.7));color:#f2f3fb}
+html:not(.dark) .overview-panel,html:not(.dark) .avatar-panel,html:not(.dark) .wearing-panel{background:linear-gradient(145deg,rgba(54,54,76,.9),rgba(39,40,59,.94));color:#f2f3fb}
+html:not(.dark) .overview-outfit{color:#f2f3fb}
+
+body{height:100dvh;background:radial-gradient(ellipse at 90% 100%,rgba(255,172,86,.13),transparent 26%),radial-gradient(ellipse at 28% 110%,rgba(156,91,255,.22),transparent 30%),#191a2b;color:var(--txt)}
+body::after{opacity:.025}.wall{display:none}.menubar{display:none}.dock{display:none}
+.win,.win.zoom{left:0!important;top:0!important;width:100vw!important;height:100dvh!important;min-height:0;border-radius:13px;background:rgba(27,28,45,.86);backdrop-filter:blur(30px) saturate(140%);-webkit-backdrop-filter:blur(30px) saturate(140%);border:1px solid rgba(255,255,255,.14);box-shadow:0 0 0 1px rgba(0,0,0,.25),var(--sh);animation:none}
+.win::before{display:none}.side{width:178px;padding:12px 9px 12px;background:linear-gradient(180deg,rgba(88,88,119,.51),rgba(43,43,65,.78));border-right:1px solid rgba(255,255,255,.18)}
+.lights{height:30px;padding:2px 5px 14px;gap:7px}.lights b{width:11px;height:11px}
+.nav{gap:3px;overflow-y:auto;overflow-x:hidden}.navlabel{position:relative;z-index:1;margin:2px 6px 4px;color:#a5a5b8;font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}.navlabel-last{margin-top:17px}
+.ni{height:34px;padding:0 8px;gap:9px;border-radius:9px;font-size:12px;color:#e9e9f3}.ni .ico{width:20px;height:20px;border-radius:7px}.ni.act{background:linear-gradient(95deg,rgba(32,144,255,.85),rgba(38,133,231,.42));box-shadow:0 4px 12px rgba(17,126,240,.2)}
+#sel{display:none}.navshortcuts{position:relative;z-index:1;display:grid;gap:2px;padding:0 3px}.navshortcuts button{display:flex;align-items:center;gap:8px;height:26px;padding:0 6px;border:0;border-radius:7px;background:transparent;color:#e0e1ec;text-align:left;font:500 11px Inter,system-ui,sans-serif;cursor:pointer}.navshortcuts button:hover{background:rgba(255,255,255,.08)}.navshortcuts i{width:7px;height:7px;border-radius:50%;background:#23d67a;box-shadow:0 0 9px currentColor}.navshortcuts button:nth-child(2) i{background:#248cff}.navshortcuts button:nth-child(3) i{background:#ffab32}
+.sidefoot{padding:12px 6px 5px;gap:7px;flex-wrap:wrap}.sidefoot::before{content:'Accent color';width:100%;color:#aaaabc;font-size:10px;font-weight:600;margin-bottom:1px}.sw{width:13px;height:13px;border-width:1px}
+.main{background:transparent}.tb{height:42px;flex:none;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.12);background:rgba(24,25,42,.36);position:relative;gap:8px}
+#sbBtn{display:none}#ttl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;line-height:1.15;text-align:center;max-width:34%;color:#f6f5ff}.pill{margin-left:auto;width:228px;height:30px;padding:0 5px 0 11px;border:1px solid rgba(255,255,255,.23);background:rgba(255,255,255,.07);box-shadow:none;color:#b9bbcf;gap:6px}.pill input{font-size:11px}.pill input::placeholder{color:#a5a7bb}.pill>svg{width:13px;height:13px;flex:none}.go{width:25px;height:25px;padding:0;border-radius:50%;font-size:0;position:relative;box-shadow:0 3px 10px rgba(20,140,255,.35)}.go::after{content:'↑';font-size:17px;line-height:1;font-weight:600}
+.content{padding:12px 18px 18px;scrollbar-gutter:stable;scrollbar-color:rgba(202,204,230,.28) transparent}.tab.show{animation:fade .2s}.profile-dashboard{display:flex;flex-direction:column;gap:12px;max-width:1440px;margin:0 auto}
+.profile-cover{position:relative;display:grid;grid-template-columns:78px minmax(0,1fr) auto;grid-template-areas:'avatar identity actions' 'avatar facts actions' 'description description description' 'history history history';column-gap:16px;row-gap:5px;padding:15px 17px 13px;border-radius:17px;background:linear-gradient(110deg,rgba(74,66,91,.83),rgba(43,52,79,.94) 68%,rgba(31,83,132,.7));border:1px solid rgba(255,255,255,.29);box-shadow:inset 0 1px rgba(255,255,255,.16),0 8px 24px rgba(0,0,0,.18)}
+.profile-cover .avbox{grid-area:avatar;width:78px;height:78px;max-width:none;align-self:center;border-radius:17px;background:rgba(255,255,255,.88);border:1px solid rgba(255,255,255,.35);box-shadow:0 8px 22px rgba(0,0,0,.22)}.profile-cover .avbox img{object-fit:cover}.profile-identity{grid-area:identity;align-self:end;min-width:0}.eyebrow{font-size:8px;letter-spacing:.14em;color:#c1c4d8;font-weight:700;margin-bottom:3px}.profile-identity h1{font-size:clamp(20px,2.5vw,28px);font-weight:800;letter-spacing:-.035em;line-height:1.06;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.profile-handle{font-size:11px;margin-top:4px;gap:7px}.profile-handle .chip{font-size:9px}.profile-facts{grid-area:facts;display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:4px}.fact-pill{height:23px;padding:0 9px;display:inline-flex;align-items:center;gap:6px;border-radius:99px;border:1px solid rgba(255,255,255,.22);background:rgba(24,25,42,.27);color:#e0dfec;font-size:10px;white-space:nowrap}.fact-pill i{width:7px;height:7px;border-radius:50%;background:#ff4c8b;box-shadow:0 0 8px currentColor}.fact-pill b{font-size:10px;color:#fff}.fact-green i{background:#43de88}.fact-blue i{background:#278dff}.fact-violet i{background:#bd6cff}.profile-actions{grid-area:actions;display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:126px}.profile-actions .btn{height:29px;justify-content:center;padding:0 11px;border-radius:99px;font-size:10px}.profile-actions .btn.pri{background:linear-gradient(#42a7ff,#1684ed);box-shadow:0 4px 12px rgba(27,138,246,.3)}.profile-presence{display:none}.profile-description{grid-area:description;max-height:34px;overflow:hidden;color:#c4c5d4;font-size:10px;line-height:1.5}.profile-history{grid-area:history}.profile-history:empty{display:none}
+.profile-tabs{display:flex;align-items:center;gap:5px;min-height:32px;padding:3px 6px;border-radius:99px;background:rgba(49,49,67,.78);border:1px solid rgba(255,255,255,.2);overflow-x:auto;scrollbar-width:none}.profile-tabs::-webkit-scrollbar{display:none}.profile-tab{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid transparent;border-radius:99px;background:transparent;color:#e2e2ee;font:600 10px Inter,system-ui,sans-serif;white-space:nowrap;cursor:pointer}.profile-tab svg{color:#d4d4e3}.profile-tab span{padding:1px 5px;border-radius:99px;background:rgba(255,255,255,.13);color:#d0d0df;font-size:8px}.profile-tab.active,.profile-tab:hover{background:rgba(255,255,255,.17);border-color:rgba(255,255,255,.28);box-shadow:inset 0 1px rgba(255,255,255,.12)}
+.overview-panel,.avatar-panel,.wearing-panel{border-radius:17px;background:linear-gradient(145deg,rgba(54,54,76,.9),rgba(39,40,59,.94));border:1px solid rgba(255,255,255,.23);box-shadow:inset 0 1px rgba(255,255,255,.08),0 8px 18px rgba(0,0,0,.14)}.overview-panel{padding:10px 11px 11px;min-width:0}.section-heading{min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.section-heading h2{display:flex;align-items:center;gap:7px;min-width:0;font-size:12px;font-weight:750;letter-spacing:-.01em}.section-icon{width:19px;height:19px;border-radius:7px;display:grid;place-items:center;color:#fff;flex:none}.section-icon.pink{background:#fa4777}.section-icon.cyan{background:#21bed0}.heading-count{font-size:10px;color:#afb0c2;font-weight:500}.text-action{display:inline-flex;align-items:center;gap:4px;background:none;border:0;color:#aeb9cb;font:600 9px Inter,system-ui,sans-serif;white-space:nowrap;cursor:pointer}.text-action:hover{color:#fff}.outfit-carousel{display:flex;gap:9px;overflow-x:auto;scrollbar-width:thin;scrollbar-color:rgba(211,213,230,.3) transparent;padding:0 0 3px}.overview-outfit{width:132px;min-width:132px;overflow:hidden;border-radius:15px;background:linear-gradient(140deg,rgba(123,121,143,.5),rgba(75,77,103,.72));border:1px solid rgba(255,255,255,.23);cursor:pointer;animation:rise .3s backwards;animation-delay:calc(var(--i)*25ms)}.overview-outfit:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.42)}.outfit-visual{height:116px;position:relative;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 50% 85%,rgba(47,151,255,.2),transparent 50%),rgba(255,255,255,.035)}.outfit-visual img{width:100%;height:100%;object-fit:contain;transition:transform .25s}.overview-outfit:hover .outfit-visual img{transform:scale(1.05)}.outfit-label{position:absolute;top:8px;left:8px;padding:3px 7px;border-radius:99px;background:rgba(223,83,145,.69);color:#ffe9f5;font-size:7px;font-weight:800;letter-spacing:.05em}.overview-card-copy{padding:7px 9px 8px}.overview-card-copy>b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}.overview-card-id{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-top:4px}.overview-card-id span{max-width:calc(100% - 24px);padding:2px 6px;overflow:hidden;text-overflow:ellipsis;border-radius:99px;background:rgba(38,136,226,.2);color:#a9d3ff;font:500 8px 'JetBrains Mono',monospace}.overview-card-id button{width:20px;height:20px;border:1px solid rgba(255,255,255,.17);border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.08);color:#d9d9e5;cursor:pointer}.overview-state{min-height:80px;display:flex;align-items:center;justify-content:center;gap:8px;color:#adafc1;font-size:10px}.overview-state .spinner{width:17px;height:17px;border-width:2px}
+.overview-lower{display:grid;grid-template-columns:minmax(190px,.72fr) minmax(0,1.6fr);gap:11px;min-height:230px}.avatar-panel,.wearing-panel{min-width:0;padding:10px 11px}.avatar-panel{display:flex;flex-direction:column;min-height:220px}.live-dot{width:8px;height:8px;border-radius:50%;background:#38df80;box-shadow:0 0 9px #38df80}.live-label{padding:3px 7px;border-radius:99px;background:rgba(180,94,232,.28);color:#dfaaff;font-size:8px;font-weight:800;letter-spacing:.06em}.avatar-stage{flex:1;min-height:155px;position:relative;display:grid;place-items:center;overflow:hidden;border-radius:12px;background:radial-gradient(ellipse at 50% 98%,rgba(150,99,241,.34),transparent 48%),linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,.04))}.avatar-stage img{width:100%;height:100%;max-height:220px;object-fit:contain}.avatar-caption{padding:5px 1px 0;color:#a1a2b5;font-size:9px}.wearing-panel{display:flex;flex-direction:column}.wearing-list{overflow:auto;min-height:0;scrollbar-width:thin;scrollbar-color:rgba(211,213,230,.2) transparent}.wearing-row{min-height:44px;display:flex;align-items:center;gap:9px;padding:5px 7px;border-bottom:1px solid rgba(255,255,255,.08)}.wearing-row:last-child{border-bottom:0}.wearing-thumb{width:32px;height:32px;border-radius:9px;overflow:hidden;background:rgba(255,255,255,.09);flex:none}.wearing-thumb img{width:100%;height:100%;object-fit:cover}.wearing-copy{min-width:0;flex:1}.wearing-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:650}.wearing-copy span{display:block;color:#9fa2b8;font-size:8px;margin-top:2px}.wearing-id{max-width:96px;padding:4px 7px;overflow:hidden;text-overflow:ellipsis;border:1px solid rgba(255,255,255,.12);border-radius:99px;background:rgba(54,148,230,.17);color:#add5ff;font:500 8px 'JetBrains Mono',monospace;white-space:nowrap;cursor:pointer}.wearing-id:hover{background:rgba(42,145,245,.35)}
+/* Reuse this dark glass language in detail tabs and the outfit modal. */
+.card{color:var(--txt)}.state{color:#a1a4b9}.btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)}.btn.pri{background:#168df5}.chip,.tag{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#d3d6e7}.ph{background:linear-gradient(110deg,rgba(255,255,255,.04) 30%,rgba(255,255,255,.12) 45%,rgba(255,255,255,.04) 60%);background-size:200% 100%;animation:shimmer 1.6s linear infinite}@keyframes shimmer{to{background-position:-200% 0}}
+@media(max-width:760px){
+ .win,.win.zoom{top:0!important;left:0!important;width:100vw!important;height:100dvh!important;border-radius:0}
+ .side{position:relative;width:150px;min-width:150px;padding:9px 7px 10px;box-shadow:none}.navlabel{margin-left:5px}.ni{height:32px;padding:0 6px;font-size:10px}.ni .ico{width:18px;height:18px}.navshortcuts button{font-size:10px}
+ .tb{height:40px;padding:0 9px}.pill{width:min(210px,48vw)}.content{padding:10px 11px 14px}
+ .profile-cover{grid-template-columns:64px minmax(0,1fr) auto;column-gap:10px;padding:12px}.profile-cover .avbox{width:64px;height:64px;border-radius:13px}.profile-actions{min-width:105px}.profile-actions .btn{font-size:9px;padding-inline:7px}.profile-facts{gap:4px}.fact-pill{font-size:8px;padding-inline:6px;height:20px}.profile-tabs{gap:2px}.profile-tab{padding:5px 7px;font-size:9px}.overview-outfit{width:120px;min-width:120px}.outfit-visual{height:100px}.overview-lower{grid-template-columns:minmax(150px,.7fr) minmax(0,1.3fr);min-height:210px}.wearing-row{gap:6px;padding-inline:4px}.wearing-id{max-width:72px}
+}
+@media(max-width:520px){
+ .side{width:62px;min-width:62px;padding:9px 5px}.lights{gap:5px;padding-left:2px}.lights b{width:9px;height:9px}.navlabel,.navshortcuts,.sidefoot::before{display:none}.nav{align-items:center}.ni{width:42px;justify-content:center;padding:0}.ni>span:not(.ico):not(.bd){display:none}.ni .bd{display:none!important}.sidefoot{justify-content:center;padding:8px 0;gap:5px}.sw{width:10px;height:10px}
+ .tb{height:40px}.tb h2{display:none}.pill{width:190px;max-width:calc(100vw - 90px)}.content{padding:8px}
+ .profile-dashboard{gap:8px}.profile-cover{grid-template-columns:54px minmax(0,1fr);grid-template-areas:'avatar identity' 'facts facts' 'actions actions' 'description description' 'history history';gap:6px;padding:10px}.profile-cover .avbox{width:54px;height:54px}.profile-identity h1{font-size:19px}.profile-actions{flex-direction:row;min-width:0}.profile-actions .btn{flex:1;height:27px}.profile-facts{margin-top:2px}.fact-pill{height:19px;font-size:8px}.profile-tabs{min-height:30px}.profile-tab{font-size:8px;padding:4px 6px}.profile-tab svg{display:none}
+ .overview-panel,.avatar-panel,.wearing-panel{padding:8px}.overview-panel{min-height:185px}.overview-outfit{width:112px;min-width:112px}.outfit-visual{height:96px}.overview-lower{grid-template-columns:1fr;min-height:0}.avatar-panel{min-height:215px}.avatar-stage{min-height:160px}.wearing-panel{max-height:265px}.wearing-row{min-height:40px}
+}
+
 </style>
 </head>
 <body>
@@ -662,7 +777,7 @@ pre.raw{padding:18px;border-radius:18px;background:var(--solid);border:1px solid
   <div class="tb" id="tb">
    <button class="iconbtn" id="sbBtn" title="Seitenleiste ein/aus"></button>
    <h2 id="ttl">Start</h2>
-   <div class="pill" id="pill"><span class="spin"></span><input id="q" placeholder="Username oder ID suchen …" autocomplete="off" spellcheck="false"><button class="go" id="go">Suchen</button></div>
+   <div class="pill" id="pill"><span class="spin"></span><input id="q" placeholder="Username or User ID" autocomplete="off" spellcheck="false"><button class="go" id="go" aria-label="Search">Search</button></div><button class="iconbtn toolbar-theme" id="toolbarTheme" title="Toggle light and dark theme" aria-label="Toggle theme"></button>
   </div>
   <div class="content" id="content">
    <section class="tab show" id="t-start">
@@ -719,15 +834,15 @@ const ICONS={
 const ic=(n,s=20)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${ICONS[n]}"/></svg>`;
 
 const TABS=[
- {id:'start',label:'Start',icon:'home',color:'#0a84ff',desc:''},
- {id:'profil',label:'Profil',icon:'user',color:'#30d158',desc:'Freunde, Follower, Folgt, Online-Status, frühere Namen und ein großes Profilbild.'},
- {id:'items',label:'Items',icon:'shirt',color:'#ff9f0a',badge:'cItems',desc:'Alles, was der Avatar gerade trägt – mit Ersteller, Preis und Avatar-Maßen.'},
- {id:'outfits',label:'Outfits',icon:'layers',color:'#bf5af2',badge:'cOutfits',desc:'Gespeicherte Outfits. Ein Klick auf ein Outfit zeigt alle Items darin.'},
- {id:'games',label:'Spiele',icon:'game',color:'#ff375f',badge:'cGames',desc:'Öffentliche Spiele mit Icon, Besuchen und Link.'},
- {id:'groups',label:'Gruppen',icon:'group',color:'#5ac8fa',badge:'cGroups',desc:'Gruppen mit Rolle, Mitgliederzahl und Icon.'},
- {id:'raw',label:'Rohdaten',icon:'code',color:'#8e8e93',desc:''}
+ {id:'start',label:'Start',icon:'home',color:'#308cff',desc:''},
+ {id:'profil',label:'Profile',icon:'user',color:'#b55bfa',desc:'Freunde, Follower, Status, frühere Namen und Profilbild.'},
+ {id:'outfits',label:'Saved outfits',icon:'layers',color:'#ff4d78',badge:'cOutfits',desc:'Gespeicherte Outfits. Klicke ein Outfit an, um alle Items zu sehen.'},
+ {id:'games',label:'Store looks',icon:'game',color:'#ff9f32',desc:'Öffentliche Spiele und Experiences dieses Spielers.'},
+ {id:'items',label:'Items',icon:'shirt',color:'#21bed0',badge:'cItems',desc:'Getragene Items mit Ersteller, Preis und Avatar-Maßen.'},
+ {id:'groups',label:'Groups',icon:'group',color:'#438fff',badge:'cGroups',desc:'Gruppen, Rollen und Mitgliederzahlen.'},
+ {id:'raw',label:'Raw data',icon:'code',color:'#8e909f',desc:''}
 ];
-const ACC=[['Blau','#0a84ff'],['Violett','#bf5af2'],['Rosa','#ff375f'],['Orange','#ff9f0a'],['Grün','#30d158'],['Graphit','#8e8e93']];
+const ACC=[['Blue','#168df5'],['Violett','#bf5af2'],['Rosa','#ff4d78'],['Orange','#ff9f32'],['Grün','#30d158'],['Graphit','#8e8e93']];
 
 const win=$('#win');let moved=false;
 const rlCache=new Map();
@@ -738,7 +853,7 @@ function newData(){return{userId:null,user:null,avatar:undefined,outfits:undefin
 let data=newData();
 
 /* ---------- Sidebar + Dock ---------- */
-$('#nav').innerHTML='<div id="sel"></div>'+TABS.map(t=>`<div class="ni" data-tab="${t.id}"><span class="ico" style="background:${t.color}">${ic(t.icon,15)}</span><span>${t.label}</span>${t.badge?`<span class="bd" id="${t.badge}"></span>`:''}</div>`).join('');
+$('#nav').innerHTML='<div id="sel"></div><div class="navlabel">Discover</div>'+TABS.map(t=>`<div class="ni" data-tab="${t.id}"><span class="ico" style="background:${t.color}">${ic(t.icon,15)}</span><span>${t.label}</span>${t.badge?`<span class="bd" id="${t.badge}"></span>`:''}</div>`).join('')+'<div class="navlabel navlabel-last">Try it</div><div class="navshortcuts"><button data-q="Roblox"><i></i>Roblox</button><button data-q="builderman"><i></i>builderman</button><button data-q="1"><i></i>ID 1</button></div>';
 $('#dock').innerHTML=TABS.map(t=>`<div class="di" data-tab="${t.id}" style="background:${t.color}">${ic(t.icon,24)}<span class="tip">${t.label}</span></div>`).join('')+'<div class="dsep"></div><div class="di" id="dkTrash" style="background:#636366">'+ic('trash',24)+'<span class="tip">Verlauf &amp; Cache leeren</span></div>';
 $('#swatches').innerHTML=ACC.map(a=>`<span class="sw" data-c="${a[1]}" title="${a[0]}" style="background:${a[1]}"></span>`).join('');
 $('#logo').innerHTML=ic('user',42);
@@ -770,12 +885,13 @@ function closeM(){$('#menu').classList.remove('show');$$('.mb').forEach(x=>x.cla
 $$('.mb').forEach(el=>el.addEventListener('mouseenter',()=>{if(openMenu&&openMenu!==el.dataset.m)openM(el.dataset.m,el)}));
 
 /* ---------- Theme / Akzent ---------- */
-function setTheme(d){document.documentElement.classList.toggle('dark',d);localStorage.setItem('af-theme',d?'dark':'light');$('#thBtn').innerHTML=ic(d?'sun':'moon',16)}
+function setTheme(d){document.documentElement.classList.toggle('dark',d);localStorage.setItem('af-theme',d?'dark':'light');const icon=ic(d?'sun':'moon',16);if($('#thBtn'))$('#thBtn').innerHTML=icon;if($('#toolbarTheme'))$('#toolbarTheme').innerHTML=icon}
 function setAcc(c){document.documentElement.style.setProperty('--acc',c);localStorage.setItem('af-accent',c);$$('.sw').forEach(s=>s.classList.toggle('on',s.dataset.c===c))}
 const savedTheme=localStorage.getItem('af-theme');
-setTheme(savedTheme?savedTheme==='dark':matchMedia('(prefers-color-scheme:dark)').matches);
-setAcc(localStorage.getItem('af-accent')||'#0a84ff');
+setTheme(savedTheme?savedTheme==='dark':true);
+setAcc(localStorage.getItem('af-accent')||'#168df5');
 $('#thBtn').onclick=()=>setTheme(!document.documentElement.classList.contains('dark'));
+$('#toolbarTheme').onclick=()=>setTheme(!document.documentElement.classList.contains('dark'));
 
 /* ---------- Toasts / Alerts / Kopieren ---------- */
 function notify(t,m){const d=document.createElement('div');d.className='toast';d.innerHTML=`<b>${esc(t)}</b><span>${esc(m||'')}</span>`;$('#toasts').appendChild(d);setTimeout(()=>{d.classList.add('out');setTimeout(()=>d.remove(),320)},3200)}
@@ -825,7 +941,6 @@ function showTab(id){
  moveSel();
  if(id==='raw')renderRaw();
  $('#content').scrollTop=0;
- if(innerWidth<=760)win.classList.add('collapsed');
 }
 
 /* ---------- Dock-Vergrößerung ---------- */
@@ -917,26 +1032,83 @@ function renderProfile(){
  const el=$('#t-profil');
  if(!data.user){el.innerHTML=needUser();return}
  const u=data.user,id=data.userId;
- const created=u.created?new Date(u.created).toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'}):'–';
- el.innerHTML=`<div class="card prof">
-  <div class="avbox" id="avbox"></div>
-  <div class="pinfo">
-   <h1>${esc(u.displayName||u.name)}${u.hasVerifiedBadge?'<span class="vb" title="Verifiziert">✓</span>':''}</h1>
-   <div class="sub">@${esc(u.name)} <button class="chip" data-copy="${esc(id)}" title="ID kopieren">ID ${esc(id)} ${ic('copy',12)}</button></div>
-   <div class="mt" id="pfPres"></div>
-   ${u.description?`<p class="desc">${esc(u.description)}</p>`:''}
-   <div class="mt pills">${u.isBanned?'<span class="tag red">Gesperrt</span>':''}<span class="tag">Beigetreten ${esc(created)}</span></div>
-   <div class="stats">${STATS.map(s=>`<div class="stat"><b id="${s[0]}">…</b><span>${s[1]}</span></div>`).join('')}</div>
-   <div id="pfHist"></div>
-   <div class="acts">
-    <a class="btn pri" target="_blank" rel="noopener" href="https://www.roblox.com/users/${esc(id)}/profile">${ic('ext',15)} Auf Roblox öffnen</a>
-    <button class="btn" data-copy="${esc(id)}">${ic('copy',15)} ID kopieren</button>
-    <button class="btn" data-copy="${esc(u.name)}">Namen kopieren</button>
+ const created=u.created?new Date(u.created).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'–';
+ el.innerHTML=`<div class="profile-dashboard">
+  <section class="profile-cover card">
+   <div class="avbox" id="avbox"></div>
+   <div class="profile-identity">
+    <div class="eyebrow">ROBLOX PROFILE</div>
+    <h1>${esc(u.displayName||u.name)}${u.hasVerifiedBadge?'<span class="vb" title="Verified">✓</span>':''}</h1>
+    <div class="sub profile-handle">@${esc(u.name)} <button class="chip" data-copy="${esc(id)}" title="Copy ID">ID ${esc(id)} ${ic('copy',12)}</button></div>
+    <div class="profile-facts">
+     <span class="fact-pill fact-pink"><i></i><b id="stOutfits">…</b> saved outfits</span>
+     <span class="fact-pill fact-green"><i></i><b id="stFriends">…</b> friends</span>
+     <span class="fact-pill fact-blue"><i></i><b id="stFollowers">…</b> followers</span>
+     <span class="fact-pill fact-violet"><i></i>${esc(created)} joined</span>
+    </div>
+    <div class="profile-presence" id="pfPres"></div>
    </div>
-  </div></div>`;
- setProfImg();updExtra();
+   <div class="profile-actions">
+    <a class="btn pri" target="_blank" rel="noopener" href="https://www.roblox.com/users/${esc(id)}/profile">${ic('ext',15)} View on Roblox</a>
+    <button class="btn" data-copy="${esc(id)}">${ic('copy',15)} Copy ID</button>
+   </div>
+   ${u.description?`<p class="profile-description">${esc(u.description)}</p>`:''}
+   <div id="pfHist" class="profile-history"></div>
+   ${u.isBanned?'<span class="tag red">Account banned</span>':''}
+  </section>
+  <nav class="profile-tabs" aria-label="Profile sections">
+   <button class="profile-tab active" data-tab="profil">${ic('user',14)} Overview</button>
+   <button class="profile-tab" data-tab="outfits">${ic('layers',14)} Saved outfits <span id="ovOutfitBadge">–</span></button>
+   <button class="profile-tab" data-tab="games">${ic('game',14)} Store looks <span id="ovGamesBadge">–</span></button>
+   <button class="profile-tab" data-tab="items">${ic('shirt',14)} Items <span id="ovItemsBadge">–</span></button>
+   <button class="profile-tab" data-tab="raw">${ic('code',14)} Raw data</button>
+  </nav>
+  <section class="overview-panel card">
+   <div class="section-heading"><h2><span class="section-icon pink">${ic('layers',14)}</span>Saved outfits <span class="heading-count" id="ovOutfitHeading">—</span></h2><button class="text-action" data-tab="outfits">View all ${ic('ext',13)}</button></div>
+   <div class="outfit-carousel" id="ovOutfits"></div>
+  </section>
+  <section class="overview-lower">
+   <div class="avatar-panel card">
+    <div class="section-heading"><h2><span class="live-dot"></span>Avatar preview</h2><span class="live-label">LIVE</span></div>
+    <div class="avatar-stage" id="ovAvatar"></div>
+    <div class="avatar-caption">Current avatar appearance</div>
+   </div>
+   <div class="wearing-panel card">
+    <div class="section-heading"><h2><span class="section-icon cyan">${ic('shirt',14)}</span>Wearing now</h2><button class="text-action" data-tab="items">All items ${ic('ext',13)}</button></div>
+    <div class="wearing-list" id="ovWearing"></div>
+   </div>
+  </section>
+ </div>`;
+ setProfImg();updExtra();renderOverviewSections();
 }
-function setProfImg(){const b=$('#avbox');if(!b)return;b.innerHTML=data.currentThumb?`<img src="${esc(data.currentThumb)}" alt="Avatar">`:'<div class="ph"></div>'}
+function setProfImg(){
+ const b=$('#avbox');if(b)b.innerHTML=data.currentThumb?`<img src="${esc(data.currentThumb)}" alt="${esc(data.user&&data.user.displayName||'Avatar')}">`:'<div class="ph"></div>';
+ renderOverviewSections();
+}
+function renderOverviewSections(){
+ const outfitBox=$('#ovOutfits'),wearBox=$('#ovWearing'),avatarBox=$('#ovAvatar');
+ if(!outfitBox||!wearBox||!avatarBox)return;
+ const outfits=data.outfits, assets=data.avatar&&data.avatar.assets||[];
+ const countText=Array.isArray(outfits)?outfits.length:(outfits===null?'!':'…');
+ ['ovOutfitBadge','ovOutfitHeading'].forEach(id=>{const n=document.getElementById(id);if(n)n.textContent=countText});
+ const gamesBadge=$('#ovGamesBadge');if(gamesBadge)gamesBadge.textContent=Array.isArray(data.extra.games)?data.extra.games.length:'…';
+ const itemsBadge=$('#ovItemsBadge');if(itemsBadge)itemsBadge.textContent=data.avatar&&Array.isArray(data.avatar.assets)?assets.length:'…';
+ if(outfits===undefined){outfitBox.innerHTML='<div class="overview-state"><span class="spinner"></span>Loading saved outfits…</div>'}
+ else if(outfits===null){outfitBox.innerHTML='<div class="overview-state">Saved outfits could not be loaded.</div>'}
+ else if(!outfits.length){outfitBox.innerHTML='<div class="overview-state">No public saved outfits for this player.</div>'}
+ else outfitBox.innerHTML=outfits.slice(0,8).map((o,i)=>{
+  const th=data.outfitThumbs[o.id];
+  return `<article class="overview-outfit card clk" data-outfit="${esc(o.id)}" style="--i:${i}"><div class="outfit-visual">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}<span class="outfit-label">SAVED OUTFIT</span></div><div class="overview-card-copy"><b title="${esc(o.name)}">${esc(o.name)}</b><div class="overview-card-id"><span>${esc(o.id)}</span><button data-copy="${esc(o.id)}" title="Copy outfit ID">${ic('copy',12)}</button></div></div></article>`
+ }).join('');
+ avatarBox.innerHTML=data.currentThumb?`<img src="${esc(data.currentThumb)}" alt="Current Roblox avatar">`:'<div class="ph"></div>';
+ if(data.avatar===undefined){wearBox.innerHTML='<div class="overview-state"><span class="spinner"></span>Loading avatar items…</div>'}
+ else if(data.avatar===null){wearBox.innerHTML='<div class="overview-state">Avatar items are unavailable.</div>'}
+ else if(!assets.length){wearBox.innerHTML='<div class="overview-state">No avatar items to show.</div>'}
+ else wearBox.innerHTML=assets.slice(0,7).map(x=>{
+  const th=data.assetThumbs[x.id],type=x.assetType&&x.assetType.name||'Item';
+  return `<div class="wearing-row"><div class="wearing-thumb">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="wearing-copy"><b title="${esc(x.name)}">${esc(x.name)}</b><span>${esc(type)}</span></div><button class="wearing-id" data-copy="${esc(x.id)}" title="Copy item ID">${esc(x.id)}</button></div>`
+ }).join('');
+}
 function updExtra(){
  if(!data.user)return;
  const E=data.extra;
@@ -948,6 +1120,7 @@ function updExtra(){
  const ph=$('#pfHist');
  if(ph)ph.innerHTML=Array.isArray(E.history)&&E.history.length?`<div class="sec2">Frühere Namen</div><div class="pills">${E.history.map(n=>`<span class="tag">${esc(n)}</span>`).join('')}</div>`:'';
  updBadges();
+ renderOverviewSections();
 }
 function updBadges(){
  const m={cItems:data.avatar&&data.avatar.assets,cOutfits:data.outfits,cGames:data.extra.games,cGroups:data.extra.groups};
@@ -977,19 +1150,19 @@ function renderItems(){
  const el=$('#t-items');
  if(!data.user){el.innerHTML=needUser();return}
  const a=data.avatar;
- if(a===undefined){el.innerHTML=loadingState('Lade Items …');return}
- if(a===null){el.innerHTML=errState('Items konnten nicht geladen werden.');return}
+ if(a===undefined){el.innerHTML=loadingState('Lade Items …');renderOverviewSections();return}
+ if(a===null){el.innerHTML=errState('Items konnten nicht geladen werden.');renderOverviewSections();return}
  const list=a.assets||[],sc=a.scales||{};
  const info=[['Typ',a.playerAvatarType],['Größe',pc(sc.height)],['Breite',pc(sc.width)],['Kopf',pc(sc.head)],['Tiefe',pc(sc.depth)],['Proportion',pc(sc.proportion)]].filter(x=>x[1]);
  el.innerHTML=(info.length?`<div class="pills" style="margin-bottom:16px">${info.map(x=>`<span class="tag">${x[0]}: <b>${esc(x[1])}</b></span>`).join('')}</div>`:'')+
   (list.length?`<div class="grid">${list.map(itemCard).join('')}</div>`:emptyState('Dieser Avatar trägt keine Items.'));
- applyMeta();
+ applyMeta();renderOverviewSections();
 }
 function renderOutfits(){
  const el=$('#t-outfits');
  if(!data.user){el.innerHTML=needUser();return}
  const o=data.outfits;
- if(o===undefined){el.innerHTML=loadingState('Lade Outfits …');return}
+ if(o===undefined){el.innerHTML=loadingState('Lade Outfits …');renderOverviewSections();return}
  if(o===null){
   const s=data.outfitsErr&&data.outfitsErr.status;
   const why=(s===401||s===403||s===400)?'Die Outfits dieses Spielers sind privat oder nur für Freunde sichtbar. Roblox zeigt sie nicht öffentlich.'
@@ -998,10 +1171,11 @@ function renderOutfits(){
    :'Die Outfits konnten gerade nicht von Roblox geladen werden.';
   el.innerHTML=`<div class="state">${ic('warn',34)}<p>${esc(why)}${s?' (Code '+s+')':''}</p><button class="btn pri" id="outRetry">Nochmal versuchen</button></div>`;
   $('#outRetry').onclick=()=>data.retryOutfits&&data.retryOutfits();
-  return;
+  renderOverviewSections();return;
  }
- if(!o.length){el.innerHTML=emptyState('Keine gespeicherten Outfits.');return}
+ if(!o.length){el.innerHTML=emptyState('Keine gespeicherten Outfits.');renderOverviewSections();return}
  el.innerHTML=`<div class="grid">${o.map((x,i)=>{const th=data.outfitThumbs[x.id];return `<div class="card clk" data-outfit="${x.id}" style="--i:${Math.min(i,14)}"><div class="th">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="cb"><div class="nm" title="${esc(x.name)}">${esc(x.name)}</div><div class="ty">Klicken für Items</div><div class="row"><button class="chip" data-copy="${x.id}" title="ID kopieren">${x.id} ${ic('copy',11)}</button></div></div></div>`}).join('')}</div>`;
+ renderOverviewSections();
 }
 function renderGames(){
  const el=$('#t-games');
@@ -1228,7 +1402,6 @@ document.addEventListener('pointermove',e=>{
 
 /* ---------- Start ---------- */
 function clock(){$('#clock').textContent=new Date().toLocaleString('de-DE',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
-if(innerWidth<=760)win.classList.add('collapsed');
 renderAll();showTab('start');recentLoad();center();clock();setInterval(clock,30000);
 addEventListener('load',()=>{moveSel();setTimeout(moveSel,300)});
 if(location.protocol==='file:')setTimeout(()=>showAlert("So geht's nicht",'Bitte starte die Datei mit Python (python test.py). Dann öffnet sich die Seite von selbst.'),500);
