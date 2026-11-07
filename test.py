@@ -909,6 +909,9 @@ html:not(.dark) .card,html:not(.dark) .stat,html:not(.dark) .tag,html:not(.dark)
 html:not(.dark) .btn.pri{background:linear-gradient(135deg,#258df5,#56a8ff);color:#fff;border-color:rgba(255,255,255,.45)}
 html:not(.dark) .wall::before{opacity:.3}
 @media(max-width:520px){.palette-label{display:none}.sidefoot{padding:6px 1px;gap:6px}.palette-block{gap:3px}.palette-row{justify-content:center;gap:3px}.wallpaper-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:3px}.wallpick{height:13px;border-radius:4px}.sw{width:9px;height:9px}}
+.equip-chip{height:25px;padding:0 9px;border-radius:99px;font-size:9px;white-space:nowrap}.sh-t .sub{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+html:not(.dark) .equip-chip{background:linear-gradient(135deg,#258df5,#56a8ff);color:#fff;border-color:rgba(255,255,255,.42)}
+@media(max-width:520px){.equip-chip{height:23px;font-size:8px;padding:0 7px}}
 @media(prefers-reduced-motion:reduce){.wall::before,.wall i{animation:none!important;transition:none!important}}
 @supports not (backdrop-filter:blur(1px)){.win,.side,.menubar,.dock,.profile-cover,.overview-panel,.avatar-panel,.wearing-panel,.profile-tabs,.menu,.sheet,.alert,.toast{background-color:rgba(31,33,52,.94)}}
 @media(max-width:760px){.win.zoom{left:0!important;top:0!important;width:100vw!important;height:100dvh!important;border-radius:0}.win:not(.drag){transition:opacity .28s ease,transform .35s var(--ease-spring)}.dock:hover{transform:translateX(-50%)}.overview-outfit:hover,.fcard:hover{transform:translateY(-2px)}}
@@ -1079,6 +1082,13 @@ function copyText(t){
  const done=()=>notify('Kopiert',t.length>60?t.slice(0,60)+' …':t);
  function fb(){const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;opacity:0';document.body.appendChild(a);a.select();try{document.execCommand('copy');done()}catch(e){notify('Fehler','Kopieren nicht möglich')}a.remove()}
  if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(t).then(done,fb);else fb();
+}
+function copyEquipCommand(id){
+ const command='/wear '+String(id||'').replace(/[^0-9]/g,'');
+ if(command==='/wear '){notify('Kein Outfit','Öffne zuerst ein Outfit.');return}
+ if(navigator.clipboard&&window.isSecureContext){
+  navigator.clipboard.writeText(command).then(()=>notify('Equip command copied','Paste '+command+' in chat in your own Roblox experience.'),()=>copyText(command));
+ }else copyText(command);
 }
 
 /* ---------- Fenster ---------- */
@@ -1403,7 +1413,7 @@ let sheetTok=0;
 function closeSheet(){sheetTok++;$('#sheetBg').classList.remove('show')}
 function sheetShell(name,id,inner,info){
  const th=data.outfitThumbs[id];
- return `<div class="sh-head"><div class="sh-img">${th?`<img src="${esc(th)}" alt="">`:'<div class="ph"></div>'}</div><div class="sh-t"><h3 title="${esc(name)}">${esc(name)}</h3><div class="sub"><button class="chip" data-copy="${esc(id)}" title="ID kopieren">Outfit-ID ${esc(id)} ${ic('copy',12)}</button></div>${info||''}</div><button class="iconbtn" data-close="1" title="Schließen">${ic('x',18)}</button></div><div class="sh-body">${inner}</div>`;
+ return `<div class="sh-head"><div class="sh-img">${th?`<img src="${esc(th)}" alt="">`:'<div class="ph"></div>'}</div><div class="sh-t"><h3 title="${esc(name)}">${esc(name)}</h3><div class="sub"><button class="chip" data-copy="${esc(id)}" title="ID kopieren">Outfit-ID ${esc(id)} ${ic('copy',12)}</button><button class="btn pri equip-chip" data-equip="${esc(id)}" title="Kommando für dein Roblox-Spiel kopieren">${ic('shirt',13)} Equip in my game</button></div>${info||''}</div><button class="iconbtn" data-close="1" title="Schließen">${ic('x',18)}</button></div><div class="sh-body">${inner}</div>`;
 }
 async function openOutfit(id,fresh){
  id=String(id);
@@ -1574,6 +1584,7 @@ document.addEventListener('click',e=>{
  if(e.target.id==='sheetBg'||e.target.closest('[data-close]')){closeSheet();return}
  const sw=e.target.closest('.sw');if(sw){setAcc(sw.dataset.c);return}
  const wall=e.target.closest('.wallpick');if(wall){setBackground(wall.dataset.wall);return}
+ const equip=e.target.closest('[data-equip]');if(equip){copyEquipCommand(equip.dataset.equip);return}
  const cp=e.target.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return}
  const oc=e.target.closest('[data-outfit]');if(oc){openOutfit(oc.dataset.outfit);return}
  const q=e.target.closest('[data-q]');if(q){showWin();search(q.dataset.q);return}
