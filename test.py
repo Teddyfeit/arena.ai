@@ -956,6 +956,29 @@ html:not(.dark) .fcard{background:linear-gradient(145deg,rgba(255,255,255,.66),r
 @supports not (backdrop-filter:blur(1px)){.win,.side,.menubar,.dock,.profile-cover,.overview-panel,.avatar-panel,.wearing-panel,.profile-tabs,.menu,.sheet,.alert,.toast{background-color:rgba(31,33,52,.94)}}
 @media(max-width:760px){.win.zoom{left:0!important;top:0!important;width:100vw!important;height:100dvh!important;border-radius:0}.win:not(.drag){transition:opacity .28s ease,transform .35s var(--ease-spring)}.dock:hover{transform:translateX(-50%)}.overview-outfit:hover,.fcard:hover{transform:translateY(-2px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important;transition-delay:0ms!important}}
+/* Sidebar refinements + persisted, keyboard-accessible width control */
+.side{width:var(--sidebar-width,178px);min-width:var(--sidebar-width,178px);background:linear-gradient(155deg,rgba(255,255,255,.105),rgba(255,255,255,.035) 45%,rgba(255,255,255,.055));backdrop-filter:blur(42px) saturate(165%);-webkit-backdrop-filter:blur(42px) saturate(165%);transition:width .38s var(--ease-out),min-width .38s var(--ease-out),background .35s ease,border-color .35s ease}
+.side .lights{flex:none;padding:3px 6px 20px}.side .nav{flex:none;gap:5px}
+.navlabel{margin:4px 8px 7px;font-size:9px;letter-spacing:.14em;color:rgba(229,233,255,.56)}.navlabel-last{margin-top:20px}
+.ni{height:38px;padding:0 9px;border:1px solid transparent;border-radius:12px;font-size:11.5px;font-weight:580}
+.ni .ico{width:22px;height:22px;border-radius:8px;box-shadow:inset 0 1px rgba(255,255,255,.38),0 3px 8px rgba(0,0,0,.12)}
+.ni.act{background:linear-gradient(105deg,color-mix(in srgb,var(--acc) 83%,white 8%),color-mix(in srgb,var(--acc) 52%,rgba(255,255,255,.12)));border-color:rgba(255,255,255,.22);box-shadow:inset 0 1px rgba(255,255,255,.28),0 7px 19px color-mix(in srgb,var(--acc) 25%,transparent)}
+.navshortcuts{gap:4px}.navshortcuts button{height:29px;border:1px solid transparent;border-radius:9px;padding:0 8px;font-size:10.5px}.navshortcuts button:hover{border-color:rgba(255,255,255,.09);background:rgba(255,255,255,.075)}
+.sidefoot{position:relative;margin-top:auto;padding:12px 7px 7px;gap:11px;border-top:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,.055));border-radius:13px 13px 0 0}
+.palette-label{font-size:8px;text-transform:uppercase;letter-spacing:.12em;color:rgba(235,238,255,.53)}
+.palette-row{gap:7px}.sw{width:14px;height:14px}.wallpaper-grid{gap:6px}.wallpick{height:21px;border-radius:7px}
+.side-resize{position:relative;z-index:15;flex:0 0 8px;width:8px;margin:0 -4px;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;user-select:none}
+.side-resize::before{content:"";position:absolute;inset:0 -3px;}
+.side-resize span{position:relative;width:3px;height:42px;border-radius:99px;background:linear-gradient(180deg,transparent,rgba(255,255,255,.68) 22%,rgba(255,255,255,.68) 78%,transparent);opacity:.24;transform:scaleY(.72);transition:opacity .22s ease,transform .3s var(--ease-spring),width .2s ease;box-shadow:0 0 12px rgba(150,190,255,.28)}
+.side-resize:hover span,.side-resize:focus-visible span,.side-resize.dragging span{opacity:1;transform:scaleY(1)}.side-resize.dragging span{width:4px;height:70px}
+.side-resize:focus-visible{outline:0}.side-resize:focus-visible span{box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 65%,transparent),0 0 14px rgba(150,190,255,.4)}
+html:not(.dark) .side{background:linear-gradient(155deg,rgba(255,255,255,.82),rgba(235,240,251,.54) 52%,rgba(222,231,249,.62));border-right-color:rgba(72,88,130,.16);box-shadow:inset -1px 0 rgba(255,255,255,.75)}
+html:not(.dark) .navlabel{color:#77819a}html:not(.dark) .ni{color:#384159}html:not(.dark) .ni.act{color:#fff}
+html:not(.dark) .navshortcuts button{color:#4d5871}html:not(.dark) .navshortcuts button:hover{background:rgba(66,95,161,.08);border-color:rgba(66,95,161,.12)}
+html:not(.dark) .sidefoot{border-top-color:rgba(67,80,118,.14);background:linear-gradient(180deg,rgba(255,255,255,.26),rgba(255,255,255,.52))}
+html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,rgba(62,87,145,.55) 22%,rgba(62,87,145,.55) 78%,transparent);box-shadow:0 0 12px rgba(87,125,205,.22)}
+@media(max-width:760px){.side{width:150px!important;min-width:150px!important}.side-resize{display:none}}
+@media(max-width:520px){.side{width:62px!important;min-width:62px!important}.sidefoot{padding:6px 1px;gap:6px}.palette-label{display:none}}
 </style>
 </head>
 <body>
@@ -970,6 +993,7 @@ html:not(.dark) .fcard{background:linear-gradient(145deg,rgba(255,255,255,.66),r
   <div class="nav" id="nav"></div>
   <div class="sidefoot" id="swatches"></div>
  </aside>
+ <div class="side-resize" id="sideResize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin="168" aria-valuemax="340" aria-valuenow="178" tabindex="0" title="Drag to resize · double-click for size presets"><span></span></div>
  <div class="main">
   <div class="tb" id="tb">
    <button class="iconbtn" id="sbBtn" title="Seitenleiste ein/aus"></button>
@@ -1059,6 +1083,35 @@ const BACKGROUNDS=[
 ];
 
 const win=$('#win');let moved=false;
+const sideResize=$('#sideResize');
+function setSidebarWidth(value,save=true){
+ if(innerWidth<=760)return;
+ const max=Math.max(220,Math.min(340,win.clientWidth-440));
+ const width=Math.round(Math.max(168,Math.min(max,Number(value)||178)));
+ document.documentElement.style.setProperty('--sidebar-width',width+'px');
+ sideResize.setAttribute('aria-valuemax',String(Math.round(max)));
+ sideResize.setAttribute('aria-valuenow',String(width));
+ if(save)localStorage.setItem('af-sidebar-width',String(width));
+}
+sideResize.addEventListener('pointerdown',e=>{
+ if(e.button!==0||innerWidth<=760)return;
+ e.preventDefault();e.stopPropagation();
+ const startX=e.clientX,startWidth=$('.side').getBoundingClientRect().width;
+ sideResize.classList.add('dragging');sideResize.setPointerCapture(e.pointerId);
+ const move=ev=>setSidebarWidth(startWidth+ev.clientX-startX);
+ const up=()=>{sideResize.classList.remove('dragging');sideResize.removeEventListener('pointermove',move);sideResize.removeEventListener('pointerup',up)};
+ sideResize.addEventListener('pointermove',move);sideResize.addEventListener('pointerup',up,{once:true});
+});
+sideResize.addEventListener('keydown',e=>{
+ if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+  e.preventDefault();const now=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'))||178;
+  setSidebarWidth(now+(e.key==='ArrowRight'?12:-12));
+ }
+});
+sideResize.addEventListener('dblclick',()=>{
+ const now=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'))||178;
+ setSidebarWidth(now<210?250:now<285?320:178);
+});
 const rlCache=new Map();
 let searchToken=0;
 
@@ -1169,7 +1222,7 @@ $('#tb').addEventListener('pointerdown',e=>{
  addEventListener('pointermove',mv);addEventListener('pointerup',up,{once:true});
 });
 $('#tb').addEventListener('dblclick',e=>{if(!e.target.closest('input,button,.pill,.iconbtn'))toggleZoom()});
-addEventListener('resize',()=>{center();moveSel()});
+addEventListener('resize',()=>{if(innerWidth>760)setSidebarWidth(localStorage.getItem('af-sidebar-width')||getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')||178,false);center();moveSel()});
 
 /* ---------- Tabs ---------- */
 let cur='start';
@@ -1666,6 +1719,7 @@ if(cursorAura&&matchMedia('(pointer:fine)').matches){
 
 /* ---------- Start ---------- */
 function clock(){$('#clock').textContent=new Date().toLocaleString('de-DE',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
+if(innerWidth>760)setSidebarWidth(localStorage.getItem('af-sidebar-width')||178,false);
 renderAll();showTab('start');recentLoad();center();clock();setInterval(clock,30000);
 addEventListener('load',()=>{moveSel();setTimeout(moveSel,300)});
 if(location.protocol==='file:')setTimeout(()=>showAlert("So geht's nicht",'Bitte starte die Datei mit Python (python test.py). Dann öffnet sich die Seite von selbst.'),500);
