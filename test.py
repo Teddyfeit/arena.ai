@@ -979,6 +979,27 @@ html:not(.dark) .sidefoot{border-top-color:rgba(67,80,118,.14);background:linear
 html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,rgba(62,87,145,.55) 22%,rgba(62,87,145,.55) 78%,transparent);box-shadow:0 0 12px rgba(87,125,205,.22)}
 @media(max-width:760px){.side{width:150px!important;min-width:150px!important}.side-resize{display:none}}
 @media(max-width:520px){.side{width:62px!important;min-width:62px!important}.sidefoot{padding:6px 1px;gap:6px}.palette-label{display:none}}
+/* Directional tab paging and finishing motion for secondary controls/content. */
+@keyframes tab-wheel-next{from{opacity:0;transform:translateY(30px) scale(.99);filter:blur(5px)}to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+@keyframes tab-wheel-prev{from{opacity:0;transform:translateY(-30px) scale(.99);filter:blur(5px)}to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+#content{overscroll-behavior:contain;scroll-behavior:smooth}
+#content.scroll-next .tab.show{animation:tab-wheel-next .48s var(--ease-out) both}
+#content.scroll-prev .tab.show{animation:tab-wheel-prev .48s var(--ease-out) both}
+.tab.show>.state,.tab.show>pre.raw,.tab.show>.grid,.tab.show>.pills{animation:app-enter .42s var(--ease-out) both}
+.ni{animation:app-enter .42s calc(var(--i,0)*35ms) backwards}
+.ni.act{animation:icon-pop .42s var(--ease-spring) both}
+.navshortcuts button{animation:app-enter .38s calc(var(--i,0)*40ms) backwards}.navshortcuts button:nth-child(2){animation-delay:40ms}.navshortcuts button:nth-child(3){animation-delay:80ms}
+.palette-block{animation:app-enter .44s var(--ease-out) both}.palette-block:nth-child(2){animation-delay:.1s}
+.sw,.wallpick{transform-origin:center;transition:transform .28s var(--ease-spring),box-shadow .3s ease,filter .25s ease,border-color .28s ease}
+.sw:active,.wallpick:active{transform:scale(.88)}
+.wallpick:nth-child(2){animation-delay:35ms}.wallpick:nth-child(3){animation-delay:70ms}.wallpick:nth-child(4){animation-delay:105ms}.wallpick:nth-child(5){animation-delay:140ms}
+.rchip,.stat,.tag,.pres,.raw,.wearing-row,.overview-card-id button{transition:transform .28s var(--ease-spring),background .28s ease,border-color .28s ease,box-shadow .3s ease,color .24s ease}
+.stat:hover{transform:translateY(-3px);box-shadow:inset 0 1px rgba(255,255,255,.2),0 12px 24px rgba(0,0,0,.13)}
+.rchip:active,.wallpick:active,.sw:active{filter:brightness(1.1)}
+.raw{animation:app-enter .42s var(--ease-out) both}
+.state{animation:app-enter .38s var(--ease-out) both}
+@media(max-width:760px){#content.scroll-next .tab.show,#content.scroll-prev .tab.show{animation-duration:.36s}}
+@media(prefers-reduced-motion:reduce){#content{scroll-behavior:auto}#content.scroll-next .tab.show,#content.scroll-prev .tab.show,.tab.show>.state,.tab.show>pre.raw,.tab.show>.grid,.tab.show>.pills,.palette-block,.ni,.navshortcuts button{animation:none!important}}
 </style>
 </head>
 <body>
@@ -1120,7 +1141,7 @@ function newData(){return{userId:null,user:null,avatar:undefined,outfits:undefin
 let data=newData();
 
 /* ---------- Sidebar + Dock ---------- */
-$('#nav').innerHTML='<div id="sel"></div><div class="navlabel">Discover</div>'+TABS.map(t=>`<div class="ni" data-tab="${t.id}"><span class="ico" style="background:${t.color}">${ic(t.icon,15)}</span><span>${t.label}</span>${t.badge?`<span class="bd" id="${t.badge}"></span>`:''}</div>`).join('')+'<div class="navlabel navlabel-last">Try it</div><div class="navshortcuts"><button data-q="Roblox"><i></i>Roblox</button><button data-q="builderman"><i></i>builderman</button><button data-q="1"><i></i>ID 1</button></div>';
+$('#nav').innerHTML='<div id="sel"></div><div class="navlabel">Discover</div>'+TABS.map((t,i)=>`<div class="ni" data-tab="${t.id}" style="--i:${i}"><span class="ico" style="background:${t.color}">${ic(t.icon,15)}</span><span>${t.label}</span>${t.badge?`<span class="bd" id="${t.badge}"></span>`:''}</div>`).join('')+'<div class="navlabel navlabel-last">Try it</div><div class="navshortcuts"><button data-q="Roblox"><i></i>Roblox</button><button data-q="builderman"><i></i>builderman</button><button data-q="1"><i></i>ID 1</button></div>';
 $('#dock').innerHTML=TABS.map(t=>`<div class="di" data-tab="${t.id}" style="background:${t.color}">${ic(t.icon,24)}<span class="tip">${t.label}</span></div>`).join('')+'<div class="dsep"></div><div class="di" id="dkTrash" style="background:#636366">'+ic('trash',24)+'<span class="tip">Verlauf &amp; Cache leeren</span></div>';
 $('#swatches').innerHTML=`<div class="palette-block"><span class="palette-label">Accent</span><div class="palette-row">${ACC.map(a=>`<button class="sw" data-c="${a[1]}" title="${a[0]}" aria-label="${a[0]} accent color" style="background:${a[1]}"></button>`).join('')}</div></div><div class="palette-block"><span class="palette-label">Wallpaper</span><div class="wallpaper-grid">${BACKGROUNDS.map(b=>`<button class="wallpick" data-wall="${b.id}" title="${b.name}" aria-label="${b.name} wallpaper" style="--wall-a:${b.colors[0]};--wall-b:${b.colors[1]};--wall-c:${b.colors[2]};--wall-d:${b.colors[3]}"></button>`).join('')}</div></div>`;
 $('#logo').innerHTML=ic('user',42);
@@ -1227,7 +1248,14 @@ addEventListener('resize',()=>{if(innerWidth>760)setSidebarWidth(localStorage.ge
 /* ---------- Tabs ---------- */
 let cur='start';
 function moveSel(){const a=$('.ni.act'),s=$('#sel');if(a&&s){s.style.transform='translateY('+a.offsetTop+'px)';s.style.height=a.offsetHeight+'px'}}
-function showTab(id){
+function showTab(id,direction){
+ const content=$('#content'),changed=id!==cur;
+ if(changed&&direction){
+  content.classList.remove('scroll-next','scroll-prev');
+  void content.offsetWidth;
+  content.classList.add(direction>0?'scroll-next':'scroll-prev');
+  setTimeout(()=>content.classList.remove('scroll-next','scroll-prev'),560);
+ }
  cur=id;
  $$('.tab').forEach(s=>s.classList.toggle('show',s.id==='t-'+id));
  $$('[data-tab]').forEach(el=>{if(el.classList.contains('ni')||el.classList.contains('di'))el.classList.toggle('act',el.dataset.tab===id)});
@@ -1235,8 +1263,38 @@ function showTab(id){
  $('#ttl').textContent=t.label+(data.user&&id!=='start'?' · '+(data.user.displayName||data.user.name):'');
  moveSel();
  if(id==='raw')renderRaw();
- $('#content').scrollTop=0;
+ content.scrollTop=0;
 }
+
+/* Scroll-chaining: scroll a page normally, then glide to the next tab at its edge. */
+let tabWheel=0,tabWheelLock=0;
+const contentArea=$('#content');
+function canScrollInDirection(target,delta){
+ let node=target instanceof Element?target:null;
+ while(node&&node!==contentArea){
+  const style=getComputedStyle(node),scrollable=/(auto|scroll)/.test(style.overflowY)&&node.scrollHeight>node.clientHeight+2;
+  if(scrollable){
+   const atTop=node.scrollTop<=1,atBottom=node.scrollTop+node.clientHeight>=node.scrollHeight-2;
+   if((delta<0&&!atTop)||(delta>0&&!atBottom))return true;
+  }
+  node=node.parentElement;
+ }
+ const atTop=contentArea.scrollTop<=1,atBottom=contentArea.scrollTop+contentArea.clientHeight>=contentArea.scrollHeight-2;
+ return (delta<0&&!atTop)||(delta>0&&!atBottom);
+}
+contentArea.addEventListener('wheel',e=>{
+ if(e.ctrlKey||e.metaKey||Math.abs(e.deltaY)<2||Math.abs(e.deltaX)>Math.abs(e.deltaY))return;
+ if(e.target.closest('input,textarea,select,[contenteditable="true"],.sheet,.menu')||$('#sheetBg').classList.contains('show')||$('#alertBg').classList.contains('show'))return;
+ if(Date.now()<tabWheelLock){e.preventDefault();return}
+ if(canScrollInDirection(e.target,e.deltaY)){tabWheel=0;return}
+ e.preventDefault();tabWheel+=e.deltaY;
+ if(Math.abs(tabWheel)<54)return;
+ const direction=tabWheel>0?1:-1,index=TABS.findIndex(t=>t.id===cur),next=TABS[index+direction];
+ tabWheel=0;
+ if(!next)return;
+ tabWheelLock=Date.now()+620;
+ showTab(next.id,direction);
+},{passive:false});
 
 /* ---------- Dock-Vergrößerung ---------- */
 const dock=$('#dock');
