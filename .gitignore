@@ -1,0 +1,4 @@
+# Local runtime cache from the Python app
+cache.db*
+app_profile/
+__pycache__/
