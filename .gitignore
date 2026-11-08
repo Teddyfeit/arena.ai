@@ -2,3 +2,5 @@
 cache.db*
 app_profile/
 __pycache__/
+memory_map_data.json
+.nexus-*.tmp
