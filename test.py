@@ -78,6 +78,15 @@ def recent_save(d):
         DB.commit()
 
 
+def recent_remove(user_id):
+    uid = str(user_id or "")
+    if not uid.isdigit():
+        return
+    with dblock:
+        DB.execute("delete from recent where user_id=?", (uid,))
+        DB.commit()
+
+
 def recent_clear():
     with dblock:
         DB.execute("delete from recent")
@@ -416,6 +425,8 @@ class H(BaseHTTPRequestHandler):
                     d = {}
                 if d.get("clear"):
                     recent_clear()
+                elif d.get("removeUserId"):
+                    recent_remove(d.get("removeUserId"))
                 else:
                     recent_save(d)
                 return self.jout({"ok": True})
@@ -1000,6 +1011,7 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
 .state{animation:app-enter .38s var(--ease-out) both}
 @media(max-width:760px){#content.scroll-next .tab.show,#content.scroll-prev .tab.show{animation-duration:.36s}}
 @media(prefers-reduced-motion:reduce){#content{scroll-behavior:auto}#content.scroll-next .tab.show,#content.scroll-prev .tab.show,.tab.show>.state,.tab.show>pre.raw,.tab.show>.grid,.tab.show>.pills,.palette-block,.ni,.navshortcuts button{animation:none!important}}
+.collection-tools{display:flex;align-items:center;gap:9px;margin:0 0 14px;flex-wrap:wrap}.collection-search{height:36px;min-width:min(240px,100%);flex:1;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--sub)}.collection-search input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--txt);font:inherit;font-size:12px}.collection-tools select{height:36px;max-width:190px;padding:0 10px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);font:inherit;font-size:11px}.collection-tools select option{color:#222}.tool-btn{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);cursor:pointer}.export-csv{height:36px;padding:0 11px;font-size:11px}.collection-grid.list-layout{grid-template-columns:1fr!important;gap:8px}.collection-grid.list-layout .card{display:flex;align-items:center;min-height:82px}.collection-grid.list-layout .th,.collection-grid.list-layout .gi{width:78px;height:78px;min-width:78px;flex:none;border-radius:12px}.collection-grid.list-layout .cb,.collection-grid.list-layout .gb{flex:1;min-width:0}.collection-grid.list-layout .rowcard .gb{padding:10px 14px}.filter-empty{padding:20px;text-align:center;color:var(--sub);font-size:13px}.rchip{padding:0;gap:0}.rchip-open{min-width:0;display:flex;align-items:center;gap:9px;padding:5px 8px 5px 5px;border:0;background:transparent;color:var(--txt);cursor:pointer;text-align:left}.rchip-open span:not(.ph2){min-width:0}.rchip-open b{font-size:12px}.recent-remove{width:27px;height:27px;margin:0 5px 0 2px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--sub);cursor:pointer}.recent-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.profile-tool-row{display:flex;justify-content:center;gap:5px}.profile-tool-row .tool-btn{width:29px;height:29px;border-radius:9px}.profile-actions .favorite-toggle{border:1px solid rgba(255,255,255,.26);background:rgba(255,255,255,.12);color:#fff}.profile-actions .favorite-toggle.saved{background:rgba(255,196,65,.2);border-color:rgba(255,205,91,.45);color:#ffe08b}.favorites-empty{min-height:250px;padding:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.favorite-empty-icon{width:56px;height:56px;display:grid;place-items:center;border-radius:18px;background:rgba(255,190,65,.15);color:#ffbd4a}.favorites-empty h2{margin:14px 0 5px;font-size:20px}.favorites-empty p{max-width:360px;margin-bottom:16px;color:var(--sub);font-size:12px}.favorites-head{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px}.favorites-head h2{font-size:20px}.favorites-head h2 span{color:var(--sub);font-size:14px}.favorites-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}.favorite-card{min-height:84px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer}.favorite-avatar{width:50px;height:50px;flex:none;overflow:hidden;border-radius:15px;background:var(--glass2)}.favorite-avatar img{width:100%;height:100%;object-fit:cover}.favorite-copy{min-width:0;flex:1;display:flex;flex-direction:column}.favorite-copy b,.favorite-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.favorite-copy b{font-size:13px}.favorite-copy span{color:var(--sub);font-size:10px}.favorite-remove{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--sub);cursor:pointer}.favorite-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}
 </style>
 </head>
 <body>
@@ -1047,6 +1059,7 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
     <div class="grid w" id="feat"></div>
    </section>
    <section class="tab" id="t-profil"></section>
+   <section class="tab" id="t-favorites"></section>
    <section class="tab" id="t-items"></section>
    <section class="tab" id="t-outfits"></section>
    <section class="tab" id="t-games"></section>
@@ -1081,13 +1094,20 @@ const ICONS={
  side:'M3 5h18v14H3zM9 5v14',
  ext:'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
  warn:'M12 3l10 18H2L12 3zM12 10v5M12 18h.01',
- x:'M6 6l12 12M18 6L6 18'
+ x:'M6 6l12 12M18 6L6 18',
+ star:'M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.8 6.75 19.6l1-5.8L3.5 9.7l5.9-.9L12 3.5z',
+ share:'M12 16V4M7 9l5-5 5 5M5 14v5h14v-5',
+ download:'M12 3v12M7 10l5 5 5-5M5 19h14',
+ refresh:'M20 7v5h-5M4 17v-5h5M5.5 9A7 7 0 0118 6l2 2M6 16l-2 2 2 2M4 18a7 7 0 0012.5-3',
+ grid:'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+ list:'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'
 };
 const ic=(n,s=20)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${ICONS[n]}"/></svg>`;
 
 const TABS=[
  {id:'start',label:'Start',icon:'home',color:'#308cff',desc:''},
  {id:'profil',label:'Profile',icon:'user',color:'#b55bfa',desc:'Freunde, Follower, Status, frühere Namen und Profilbild.'},
+ {id:'favorites',label:'Favorites',icon:'star',color:'#ff4d78',badge:'cFavorites',desc:''},
  {id:'outfits',label:'Saved outfits',icon:'layers',color:'#ff4d78',badge:'cOutfits',desc:'Gespeicherte Outfits. Klicke ein Outfit an, um alle Items zu sehen.'},
  {id:'games',label:'Store looks',icon:'game',color:'#ff9f32',desc:'Öffentliche Spiele und Experiences dieses Spielers.'},
  {id:'items',label:'Items',icon:'shirt',color:'#21bed0',badge:'cItems',desc:'Getragene Items mit Ersteller, Preis und Avatar-Maßen.'},
@@ -1139,6 +1159,10 @@ let searchToken=0;
 function newExtra(){return{friends:undefined,followers:undefined,following:undefined,history:undefined,presence:undefined,groups:undefined,games:undefined}}
 function newData(){return{userId:null,user:null,avatar:undefined,outfits:undefined,outfitsErr:null,retryOutfits:null,outfitThumbs:{},assetThumbs:{},gameThumbs:{},groupThumbs:{},assetMeta:{},extra:newExtra(),currentThumb:null,raw:{}}}
 let data=newData();
+function readFavorites(){try{const x=JSON.parse(localStorage.getItem('af-favorites')||'[]');return Array.isArray(x)?x:[]}catch(e){return[]}}
+let favorites=readFavorites();
+function saveFavorites(){try{localStorage.setItem('af-favorites',JSON.stringify(favorites))}catch(e){}renderFavorites();updateFavoriteButton();updBadges()}
+function isFavorite(id){return favorites.some(x=>String(x.userId)===String(id))}
 
 /* ---------- Sidebar + Dock ---------- */
 $('#nav').innerHTML='<div id="sel"></div><div class="navlabel">Discover</div>'+TABS.map((t,i)=>`<div class="ni" data-tab="${t.id}" style="--i:${i}"><span class="ico" style="background:${t.color}">${ic(t.icon,15)}</span><span>${t.label}</span>${t.badge?`<span class="bd" id="${t.badge}"></span>`:''}</div>`).join('')+'<div class="navlabel navlabel-last">Try it</div><div class="navshortcuts"><button data-q="Roblox"><i></i>Roblox</button><button data-q="builderman"><i></i>builderman</button><button data-q="1"><i></i>ID 1</button></div>';
@@ -1263,6 +1287,7 @@ function showTab(id,direction){
  $('#ttl').textContent=t.label+(data.user&&id!=='start'?' · '+(data.user.displayName||data.user.name):'');
  moveSel();
  if(id==='raw')renderRaw();
+ if(id==='favorites')renderFavorites();
  content.scrollTop=0;
 }
 
@@ -1403,7 +1428,13 @@ function renderProfile(){
    </div>
    <div class="profile-actions">
     <a class="btn pri" target="_blank" rel="noopener" href="https://www.roblox.com/users/${esc(id)}/profile">${ic('ext',15)} View on Roblox</a>
-    <button class="btn" data-copy="${esc(id)}">${ic('copy',15)} Copy ID</button>
+    <button class="btn favorite-toggle" id="favoriteToggle" data-fav-current="1"></button>
+    <div class="profile-tool-row">
+     <button class="tool-btn" data-action="share-profile" title="Copy profile link" aria-label="Copy profile link">${ic('share',14)}</button>
+     <button class="tool-btn" data-action="export-profile" title="Download profile JSON" aria-label="Download profile JSON">${ic('download',14)}</button>
+     <button class="tool-btn" data-action="refresh-profile" title="Refresh profile data" aria-label="Refresh profile data">${ic('refresh',14)}</button>
+     <button class="tool-btn" data-action="copy-display-name" title="Copy display name" aria-label="Copy display name">${ic('copy',14)}</button>
+    </div>
    </div>
    ${u.description?`<p class="profile-description">${esc(u.description)}</p>`:''}
    <div id="pfHist" class="profile-history"></div>
@@ -1432,7 +1463,26 @@ function renderProfile(){
    </div>
   </section>
  </div>`;
- setProfImg();updExtra();renderOverviewSections();
+ setProfImg();updateFavoriteButton();updExtra();renderOverviewSections();
+}
+function updateFavoriteButton(){
+ const b=$('#favoriteToggle');if(!b||!data.user)return;
+ const saved=isFavorite(data.userId);b.classList.toggle('saved',saved);
+ b.innerHTML=`${ic('star',14)} ${saved?'Saved to favorites':'Add to favorites'}`;
+ b.setAttribute('aria-pressed',saved?'true':'false');
+}
+function toggleCurrentFavorite(){
+ if(!data.user)return;
+ const id=String(data.userId),index=favorites.findIndex(x=>String(x.userId)===id);
+ if(index>=0){favorites.splice(index,1);notify('Removed from favorites',data.user.displayName||data.user.name)}
+ else{favorites.unshift({userId:id,username:data.user.name,displayName:data.user.displayName||data.user.name,avatarUrl:data.currentThumb||''});notify('Added to favorites',data.user.displayName||data.user.name)}
+ saveFavorites();
+}
+function removeFavorite(id){favorites=favorites.filter(x=>String(x.userId)!==String(id));saveFavorites();notify('Favorite removed','The profile was removed from your saved list.')}
+function renderFavorites(){
+ const el=$('#t-favorites');if(!el)return;
+ if(!favorites.length){el.innerHTML=`<div class="favorites-empty card"><div class="favorite-empty-icon">${ic('star',25)}</div><h2>Your favorites live here</h2><p>Save profiles with the star button. They stay in this browser for next time.</p><button class="btn pri" data-tab="start">Find a profile</button></div>`;return}
+ el.innerHTML=`<div class="favorites-head"><div><div class="eyebrow">YOUR COLLECTION</div><h2>Favorite profiles <span>${favorites.length}</span></h2></div><button class="btn" data-action="clear-favorites">Clear all</button></div><div class="grid favorites-grid">${favorites.map((f,i)=>`<article class="favorite-card card" data-q="${esc(f.userId)}" style="--i:${i}"><div class="favorite-avatar">${f.avatarUrl?`<img src="${esc(f.avatarUrl)}" loading="lazy" alt="">`:'<span class="ph"></span>'}</div><div class="favorite-copy"><b>${esc(f.displayName||f.username)}</b><span>@${esc(f.username)} · ID ${esc(f.userId)}</span></div><button class="favorite-remove" data-unfavorite="${esc(f.userId)}" title="Remove favorite" aria-label="Remove favorite">${ic('x',14)}</button></article>`).join('')}</div>`;
 }
 function setProfImg(){
  const b=$('#avbox');if(b)b.innerHTML=data.currentThumb?`<img src="${esc(data.currentThumb)}" alt="${esc(data.user&&data.user.displayName||'Avatar')}">`:'<div class="ph"></div>';
@@ -1476,12 +1526,40 @@ function updExtra(){
  renderOverviewSections();
 }
 function updBadges(){
- const m={cItems:data.avatar&&data.avatar.assets,cOutfits:data.outfits,cGames:data.extra.games,cGroups:data.extra.groups};
- for(const k in m){const el=document.getElementById(k);if(!el)continue;const v=m[k];if(data.user&&Array.isArray(v)){el.textContent=v.length;el.style.display='block'}else el.style.display='none'}
+ const m={cItems:data.avatar&&data.avatar.assets,cOutfits:data.outfits,cGames:data.extra.games,cGroups:data.extra.groups,cFavorites:favorites};
+ for(const k in m){const el=document.getElementById(k);if(!el)continue;const v=m[k];if(Array.isArray(v)&&(k==='cFavorites'||data.user)){el.textContent=v.length;el.style.display='block'}else el.style.display='none'}
+}
+const collectionPrefs={
+ items:{query:'',sort:'name-asc',layout:'grid'},outfits:{query:'',sort:'name-asc',layout:'grid'},
+ games:{query:'',sort:'visits-desc',layout:'grid'},groups:{query:'',sort:'members-desc',layout:'grid'}
+};
+function collectionTools(key,options){
+ const p=collectionPrefs[key];
+ return `<div class="collection-tools"><label class="collection-search"><span class="sr-only">Filter ${key}</span>${ic('search',14)}<input type="search" data-collection-filter="${key}" value="${esc(p.query)}" placeholder="Filter ${key}…"></label><select data-collection-sort="${key}" aria-label="Sort ${key}">${options.map(o=>`<option value="${o[0]}"${p.sort===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select><button class="tool-btn" data-layout-toggle="${key}" title="Toggle grid or list view" aria-label="Toggle view">${ic(p.layout==='grid'?'list':'grid',15)}</button>${key==='items'?`<button class="btn export-csv" data-action="export-items-csv">${ic('download',14)} CSV</button>`:''}</div>`;
+}
+function applyCollectionTools(key){
+ const section=$('#t-'+key),p=collectionPrefs[key];if(!section||!p)return;
+ const grid=section.querySelector('.collection-grid');if(!grid)return;
+ grid.classList.toggle('list-layout',p.layout==='list');
+ const cards=[...grid.querySelectorAll('[data-list-item]')],q=p.query.toLowerCase().trim();
+ cards.forEach(c=>c.style.display=(!q||(c.dataset.search||'').toLowerCase().includes(q))?'':'none');
+ const sorters={
+  'name-asc':(a,b)=>(a.dataset.name||'').localeCompare(b.dataset.name||''),
+  'name-desc':(a,b)=>(b.dataset.name||'').localeCompare(a.dataset.name||''),
+  'type-asc':(a,b)=>(a.dataset.kind||'').localeCompare(b.dataset.kind||'')||(a.dataset.name||'').localeCompare(b.dataset.name||''),
+  'id-desc':(a,b)=>(Number(b.dataset.id)||0)-(Number(a.dataset.id)||0),
+  'visits-desc':(a,b)=>(Number(b.dataset.visits)||0)-(Number(a.dataset.visits)||0),
+  'members-desc':(a,b)=>(Number(b.dataset.members)||0)-(Number(a.dataset.members)||0)
+ };
+ cards.sort(sorters[p.sort]||sorters['name-asc']).forEach(c=>grid.appendChild(c));
+ let empty=section.querySelector('.filter-empty');
+ if(q&&!cards.some(c=>c.style.display!=='none')){if(!empty){empty=document.createElement('div');empty.className='filter-empty';empty.textContent='No matches found.';grid.after(empty)}empty.hidden=false}
+ else if(empty)empty.hidden=true;
+ const toggle=section.querySelector(`[data-layout-toggle="${key}"]`);if(toggle)toggle.innerHTML=ic(p.layout==='grid'?'list':'grid',15);
 }
 function itemCard(x,i){
- const th=data.assetThumbs[x.id];
- return `<div class="card" style="--i:${Math.min(i,14)}"><div class="th" data-aid="${x.id}">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="cb"><div class="nm" title="${esc(x.name)}">${esc(x.name)}</div><div class="ty">${esc((x.assetType&&x.assetType.name)||'Item')}</div><div class="meta" data-meta="${x.id}"></div><div class="row"><button class="chip" data-copy="${x.id}" title="ID kopieren">${x.id} ${ic('copy',11)}</button><a class="lnk" target="_blank" rel="noopener" href="https://www.roblox.com/catalog/${x.id}" title="Im Katalog öffnen">${ic('ext',14)}</a></div></div></div>`;
+ const th=data.assetThumbs[x.id],name=x.name||'Item',type=x.assetType&&x.assetType.name||'Item';
+ return `<div class="card" data-list-item="1" data-id="${esc(x.id)}" data-name="${esc(name)}" data-kind="${esc(type)}" data-search="${esc(name+' '+type+' '+x.id)}" style="--i:${Math.min(i,14)}"><div class="th" data-aid="${x.id}">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="cb"><div class="nm" title="${esc(name)}">${esc(name)}</div><div class="ty">${esc(type)}</div><div class="meta" data-meta="${x.id}"></div><div class="row"><button class="chip" data-copy="${x.id}" title="ID kopieren">${x.id} ${ic('copy',11)}</button><a class="lnk" target="_blank" rel="noopener" href="https://www.roblox.com/catalog/${x.id}" title="Im Katalog öffnen">${ic('ext',14)}</a></div></div></div>`;
 }
 function applyMeta(){
  $$('[data-meta]').forEach(el=>{
@@ -1508,8 +1586,8 @@ function renderItems(){
  const list=a.assets||[],sc=a.scales||{};
  const info=[['Typ',a.playerAvatarType],['Größe',pc(sc.height)],['Breite',pc(sc.width)],['Kopf',pc(sc.head)],['Tiefe',pc(sc.depth)],['Proportion',pc(sc.proportion)]].filter(x=>x[1]);
  el.innerHTML=(info.length?`<div class="pills" style="margin-bottom:16px">${info.map(x=>`<span class="tag">${x[0]}: <b>${esc(x[1])}</b></span>`).join('')}</div>`:'')+
-  (list.length?`<div class="grid">${list.map(itemCard).join('')}</div>`:emptyState('Dieser Avatar trägt keine Items.'));
- applyMeta();renderOverviewSections();
+  (list.length?`${collectionTools('items',[['name-asc','Name A–Z'],['name-desc','Name Z–A'],['type-asc','Item type'],['id-desc','Newest ID']])}<div class="grid collection-grid">${list.map(itemCard).join('')}</div>`:emptyState('Dieser Avatar trägt keine Items.'));
+ applyMeta();applyCollectionTools('items');renderOverviewSections();
 }
 function renderOutfits(){
  const el=$('#t-outfits');
@@ -1527,8 +1605,8 @@ function renderOutfits(){
   renderOverviewSections();return;
  }
  if(!o.length){el.innerHTML=emptyState('Keine gespeicherten Outfits.');renderOverviewSections();return}
- el.innerHTML=`<div class="grid">${o.map((x,i)=>{const th=data.outfitThumbs[x.id];return `<div class="card clk" data-outfit="${x.id}" style="--i:${Math.min(i,14)}"><div class="th">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="cb"><div class="nm" title="${esc(x.name)}">${esc(x.name)}</div><div class="ty">Klicken für Items</div><div class="row"><button class="chip" data-copy="${x.id}" title="ID kopieren">${x.id} ${ic('copy',11)}</button></div></div></div>`}).join('')}</div>`;
- renderOverviewSections();
+ el.innerHTML=`${collectionTools('outfits',[['name-asc','Name A–Z'],['name-desc','Name Z–A'],['id-desc','Newest ID']])}<div class="grid collection-grid">${o.map((x,i)=>{const th=data.outfitThumbs[x.id];return `<div class="card clk" data-list-item="1" data-name="${esc(x.name||'')}" data-search="${esc((x.name||'')+' '+x.id)}" data-id="${esc(x.id)}" data-outfit="${x.id}" style="--i:${Math.min(i,14)}"><div class="th">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="cb"><div class="nm" title="${esc(x.name)}">${esc(x.name)}</div><div class="ty">Klicken für Items</div><div class="row"><button class="chip" data-copy="${x.id}" title="ID kopieren">${x.id} ${ic('copy',11)}</button></div></div></div>`}).join('')}</div>`;
+ applyCollectionTools('outfits');renderOverviewSections();
 }
 function renderGames(){
  const el=$('#t-games');
@@ -1537,9 +1615,10 @@ function renderGames(){
  if(g===undefined){el.innerHTML=loadingState('Lade Spiele …');return}
  if(g===null){el.innerHTML=errState('Spiele konnten nicht geladen werden.');return}
  if(!g.length){el.innerHTML=emptyState('Keine öffentlichen Spiele.');return}
- el.innerHTML=`<div class="grid w">${g.map((x,i)=>{
+ el.innerHTML=`${collectionTools('games',[['visits-desc','Most visited'],['name-asc','Name A–Z'],['name-desc','Name Z–A']])}<div class="grid w collection-grid">${g.map((x,i)=>{
   const th=data.gameThumbs[x.id],pid=x.rootPlace&&x.rootPlace.id,yr=x.created?new Date(x.created).getFullYear():'';
-  return `<div class="card rowcard" style="--i:${Math.min(i,14)}"><div class="gi">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="gb"><div class="nm" title="${esc(x.name)}">${esc(x.name)}</div><div class="ty">${(x.placeVisits||0).toLocaleString('de-DE')} Besuche${yr?' · seit '+yr:''}</div><div class="row">${pid?`<button class="chip" data-copy="${pid}" title="Place-ID kopieren">${pid} ${ic('copy',11)}</button><a class="lnk" target="_blank" rel="noopener" href="https://www.roblox.com/games/${pid}">${ic('ext',14)}</a>`:''}</div></div></div>`}).join('')}</div>`;
+  return `<div class="card rowcard" data-list-item="1" data-name="${esc(x.name||'')}" data-search="${esc((x.name||'')+' '+x.id)}" data-visits="${Number(x.placeVisits)||0}" style="--i:${Math.min(i,14)}"><div class="gi">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="gb"><div class="nm" title="${esc(x.name)}">${esc(x.name)}</div><div class="ty">${(x.placeVisits||0).toLocaleString('de-DE')} Besuche${yr?' · seit '+yr:''}</div><div class="row">${pid?`<button class="chip" data-copy="${pid}" title="Place-ID kopieren">${pid} ${ic('copy',11)}</button><a class="lnk" target="_blank" rel="noopener" href="https://www.roblox.com/games/${pid}">${ic('ext',14)}</a>`:''}</div></div></div>`}).join('')}</div>`;
+ applyCollectionTools('games');
 }
 function renderGroups(){
  const el=$('#t-groups');
@@ -1548,9 +1627,10 @@ function renderGroups(){
  if(g===undefined){el.innerHTML=loadingState('Lade Gruppen …');return}
  if(g===null){el.innerHTML=errState('Gruppen konnten nicht geladen werden.');return}
  if(!g.length){el.innerHTML=emptyState('In keiner Gruppe.');return}
- el.innerHTML=`<div class="grid w">${g.map((x,i)=>{
+ el.innerHTML=`${collectionTools('groups',[['members-desc','Most members'],['name-asc','Name A–Z'],['name-desc','Name Z–A']])}<div class="grid w collection-grid">${g.map((x,i)=>{
   const gr=x.group,th=data.groupThumbs[gr.id];
-  return `<div class="card rowcard" style="--i:${Math.min(i,14)}"><div class="gi">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="gb"><div class="nm" title="${esc(gr.name)}">${esc(gr.name)}</div><div class="ty">${esc(x.role.name)} · ${(gr.memberCount||0).toLocaleString('de-DE')} Mitglieder</div><div class="row"><button class="chip" data-copy="${gr.id}" title="ID kopieren">${gr.id} ${ic('copy',11)}</button><a class="lnk" target="_blank" rel="noopener" href="https://www.roblox.com/groups/${gr.id}">${ic('ext',14)}</a></div></div></div>`}).join('')}</div>`;
+  return `<div class="card rowcard" data-list-item="1" data-name="${esc(gr.name||'')}" data-search="${esc((gr.name||'')+' '+(x.role.name||'')+' '+gr.id)}" data-members="${Number(gr.memberCount)||0}" style="--i:${Math.min(i,14)}"><div class="gi">${th?`<img src="${esc(th)}" loading="lazy" alt="">`:'<div class="ph"></div>'}</div><div class="gb"><div class="nm" title="${esc(gr.name)}">${esc(gr.name)}</div><div class="ty">${esc(x.role.name)} · ${(gr.memberCount||0).toLocaleString('de-DE')} Mitglieder</div><div class="row"><button class="chip" data-copy="${gr.id}" title="ID kopieren">${gr.id} ${ic('copy',11)}</button><a class="lnk" target="_blank" rel="noopener" href="https://www.roblox.com/groups/${gr.id}">${ic('ext',14)}</a></div></div></div>`}).join('')}</div>`;
+ applyCollectionTools('groups');
 }
 function renderRaw(){
  const el=$('#t-raw');
@@ -1559,7 +1639,7 @@ function renderRaw(){
  el.innerHTML=`<div class="acts" style="margin:0 0 14px"><button class="btn" id="rawCopy">${ic('copy',15)} JSON kopieren</button></div><pre class="raw">${esc(j)}</pre>`;
  $('#rawCopy').onclick=()=>copyText(j);
 }
-function renderAll(){renderProfile();renderItems();renderOutfits();renderGames();renderGroups();updBadges()}
+function renderAll(){renderProfile();renderFavorites();renderItems();renderOutfits();renderGames();renderGroups();updBadges()}
 
 /* ---------- Outfit-Fenster (Items eines Outfits) ---------- */
 let sheetTok=0;
@@ -1670,7 +1750,7 @@ async function loadAll(id,tok){
  runOutfits(false);
 
  // Avatar-Bild (groß)
- thumbMap(AV_TH,[uid],tok).then(m=>{if(!ok())return;D.currentThumb=m[uid]||null;setProfImg();recentSave()});
+ thumbMap(AV_TH,[uid],tok).then(m=>{if(!ok())return;D.currentThumb=m[uid]||null;if(isFavorite(uid)&&D.currentThumb){const f=favorites.find(x=>String(x.userId)===String(uid));if(f){f.avatarUrl=D.currentThumb;saveFavorites()}}setProfImg();recentSave()});
 
  // Items
  fetchRaw('https://avatar.roblox.com/v1/users/'+uid+'/avatar').then(a=>{
@@ -1713,7 +1793,7 @@ function renderRecent(){
  const b=$('#recentBox');
  if(!recent.length){b.style.display='none';return}
  b.style.display='block';
- $('#recentList').innerHTML=recent.map(r=>`<button class="rchip" data-q="${esc(r.userId)}">${r.avatarUrl?`<img src="${esc(r.avatarUrl)}" alt="">`:'<span class="ph2"></span>'}<span><b>${esc(r.displayName||r.username)}</b> <i>@${esc(r.username)}</i></span></button>`).join('');
+ $('#recentList').innerHTML=recent.map(r=>`<div class="rchip"><button class="rchip-open" data-q="${esc(r.userId)}">${r.avatarUrl?`<img src="${esc(r.avatarUrl)}" alt="">`:'<span class="ph2"></span>'}<span><b>${esc(r.displayName||r.username)}</b> <i>@${esc(r.username)}</i></span></button><button class="recent-remove" data-remove-recent="${esc(r.userId)}" title="Remove from history" aria-label="Remove ${esc(r.username)} from search history">${ic('x',11)}</button></div>`).join('');
 }
 async function recentLoad(){try{const r=await fetch('/x/recent');recent=await r.json()}catch(e){recent=[]}renderRecent()}
 async function recentSave(){
@@ -1725,6 +1805,14 @@ async function clearRecent(){
  try{await fetch('/x/recent',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"clear":true}'})}catch(e){}
  recent=[];renderRecent();notify('Verlauf gelöscht','„Zuletzt gesucht“ ist leer.');
 }
+async function recentRemove(id){
+ try{await fetch('/x/recent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({removeUserId:id})})}catch(e){}
+ recent=recent.filter(r=>String(r.userId)!==String(id));renderRecent();notify('Removed from history','The profile was removed from recent searches.');
+}
+function downloadBlob(name,content,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function exportProfile(){if(!data.user)return;const payload={user:data.user,userId:data.userId,avatar:data.avatar,outfits:data.outfits,counts:data.extra,raw:data.raw,exportedAt:new Date().toISOString()};downloadBlob(`roblox-profile-${data.userId}.json`,JSON.stringify(payload,null,2),'application/json');notify('Profile exported','JSON download started.')}
+function exportItemsCsv(){const rows=[['id','name','type'],...(data.avatar?.assets||[]).map(x=>[x.id,x.name||'',x.assetType?.name||''])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n');downloadBlob(`roblox-items-${data.userId||'avatar'}.csv`,csv,'text/csv;charset=utf-8');notify('CSV exported','Avatar items downloaded.')}
+async function shareProfile(){if(!data.user)return;const url=`https://www.roblox.com/users/${data.userId}/profile`;if(navigator.share){try{await navigator.share({title:`${data.user.displayName||data.user.name} on Roblox`,url})}catch(e){}}else{await copyText(url)}}
 $('#recClear').onclick=clearRecent;
 
 /* ---------- Events ---------- */
@@ -1735,6 +1823,17 @@ document.addEventListener('click',e=>{
  if(mi){const it=$('#menu')._items[+mi.dataset.i];closeM();if(it&&it[1])it[1]();return}
  closeM();
  if(e.target.id==='sheetBg'||e.target.closest('[data-close]')){closeSheet();return}
+ const recentDel=e.target.closest('[data-remove-recent]');if(recentDel){recentRemove(recentDel.dataset.removeRecent);return}
+ const unfav=e.target.closest('[data-unfavorite]');if(unfav){e.stopPropagation();removeFavorite(unfav.dataset.unfavorite);return}
+ const action=e.target.closest('[data-action]')?.dataset.action;
+ if(action==='clear-favorites'){favorites=[];saveFavorites();notify('Favorites cleared','Your saved profile list is empty.');return}
+ if(action==='share-profile'){shareProfile();return}
+ if(action==='export-profile'){exportProfile();return}
+ if(action==='refresh-profile'){if(data.user){rlCache.clear();search(String(data.userId))}return}
+ if(action==='copy-display-name'){if(data.user)copyText(data.user.displayName||data.user.name);return}
+ if(action==='export-items-csv'){exportItemsCsv();return}
+ if(e.target.closest('#favoriteToggle')){toggleCurrentFavorite();return}
+ const layout=e.target.closest('[data-layout-toggle]');if(layout){const key=layout.dataset.layoutToggle;collectionPrefs[key].layout=collectionPrefs[key].layout==='grid'?'list':'grid';applyCollectionTools(key);return}
  const sw=e.target.closest('.sw');if(sw){setAcc(sw.dataset.c);return}
  const wall=e.target.closest('.wallpick');if(wall){setBackground(wall.dataset.wall);return}
  const cp=e.target.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return}
@@ -1742,6 +1841,8 @@ document.addEventListener('click',e=>{
  const q=e.target.closest('[data-q]');if(q){showWin();search(q.dataset.q);return}
  const tb=e.target.closest('[data-tab]');if(tb){showWin();showTab(tb.dataset.tab);return}
 });
+document.addEventListener('input',e=>{const f=e.target.closest('[data-collection-filter]');if(!f)return;const key=f.dataset.collectionFilter;collectionPrefs[key].query=f.value;applyCollectionTools(key)});
+document.addEventListener('change',e=>{const s=e.target.closest('[data-collection-sort]');if(!s)return;const key=s.dataset.collectionSort;collectionPrefs[key].sort=s.value;applyCollectionTools(key)});
 $('#go').onclick=()=>search($('#q').value);
 $('#q').addEventListener('keydown',e=>{if(e.key==='Enter')search($('#q').value)});
 addEventListener('keydown',e=>{
