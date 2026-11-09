@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="ARENA//RTX — a single-file, real-time ray-traced showcase. Global illumination, ray-traced reflections, soft shadows and filmic grading, rendered live in your browser with raw WebGL." />
+<meta name="theme-color" content="#04060c" />
+<title>ARENA//RTX — Light Itself, Ray-Traced</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%2376b900' d='M32 2l26 15v30L32 62 6 47V17z'/%3E%3Cpath fill='%2304060c' d='M32 12l17.3 10v20L32 52 14.7 42V22z'/%3E%3Ccircle cx='32' cy='32' r='7.5' fill='%232de2ff'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#04060c;
+  --bg2:#070b14;
+  --panel:rgba(13,17,29,.62);
+  --panel-solid:#0d1120;
+  --line:rgba(148,184,255,.13);
+  --line-hot:rgba(118,185,0,.45);
+  --txt:#e9edf8;
+  --dim:#8b94b3;
+  --dim2:#5b637e;
+  --grn:#76b900;
+  --grn-hot:#a4e021;
+  --cyn:#2de2ff;
+  --mag:#ff2ea6;
+  --gold:#f5c86e;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'Space Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--txt);
+  font-family:var(--sans);
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--grn);color:#04060c}
+::-webkit-scrollbar{width:10px}
+::-webkit-scrollbar-track{background:#070b14}
+::-webkit-scrollbar-thumb{background:#233049;border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#2de2ff}
+
+/* ---------- atmosphere layers ---------- */
+.bg-grid{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(90,140,255,.05) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(90,140,255,.05) 1px,transparent 1px);
+  background-size:88px 88px;
+  -webkit-mask-image:radial-gradient(ellipse 120% 90% at 50% 0%,black 20%,transparent 75%);
+          mask-image:radial-gradient(ellipse 120% 90% at 50% 0%,black 20%,transparent 75%);
+}
+.noise{
+  position:fixed;inset:-50%;z-index:60;pointer-events:none;opacity:.055;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:256px 256px;
+  animation:grain 7s steps(6) infinite;
+}
+@keyframes grain{
+  0%,100%{transform:translate(0,0)}20%{transform:translate(-3%,2%)}
+  40%{transform:translate(3%,-2%)}60%{transform:translate(-2%,-3%)}80%{transform:translate(2%,3%)}
+}
+
+/* ---------- nav ---------- */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:50;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 clamp(18px,4vw,44px);height:66px;
+  background:rgba(4,6,12,.55);
+  backdrop-filter:blur(18px) saturate(1.3);
+  -webkit-backdrop-filter:blur(18px) saturate(1.3);
+  border-bottom:1px solid var(--line);
+}
+.logo{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--txt)}
+.logo svg{display:block;filter:drop-shadow(0 0 12px rgba(118,185,0,.45))}
+.logo-word{font-weight:700;font-size:1.06rem;letter-spacing:.06em}
+.logo-word em{font-style:normal;color:var(--grn)}
+.logo-word small{display:block;font-family:var(--mono);font-weight:400;font-size:.52rem;letter-spacing:.34em;color:var(--dim)}
+.nav-links{display:flex;gap:clamp(14px,3vw,34px);list-style:none}
+.nav-links a{
+  color:var(--dim);text-decoration:none;font-family:var(--mono);
+  font-size:.68rem;letter-spacing:.22em;text-transform:uppercase;
+  position:relative;padding:6px 2px;transition:color .3s;
+}
+.nav-links a::after{
+  content:"";position:absolute;left:0;bottom:0;height:2px;width:0;
+  background:linear-gradient(90deg,var(--grn),var(--cyn));transition:width .35s var(--ease);
+  box-shadow:0 0 10px rgba(45,226,255,.6);
+}
+.nav-links a:hover{color:#fff}
+.nav-links a:hover::after{width:100%}
+.nav-right{display:flex;align-items:center;gap:14px}
+
+/* RTX toggle */
+.rtx-toggle{
+  display:flex;align-items:center;gap:10px;cursor:pointer;border:1px solid var(--line);
+  background:rgba(9,12,22,.7);border-radius:100px;padding:7px 16px 7px 12px;
+  transition:border-color .3s, box-shadow .3s;font-family:var(--mono);
+}
+.rtx-toggle:hover{border-color:var(--line-hot);box-shadow:0 0 24px rgba(118,185,0,.18)}
+.rtx-toggle:focus-visible{outline:2px solid var(--cyn);outline-offset:3px}
+.led{width:8px;height:8px;border-radius:50%;background:#3a4157;transition:all .3s;flex:none}
+body.rtx-on .led{background:var(--grn);box-shadow:0 0 10px 2px rgba(118,185,0,.8);animation:ledPulse 2.2s ease-in-out infinite}
+@keyframes ledPulse{0%,100%{box-shadow:0 0 8px 2px rgba(118,185,0,.7)}50%{box-shadow:0 0 14px 4px rgba(118,185,0,.95)}}
+.rtx-label{font-size:.68rem;letter-spacing:.18em;color:var(--dim);transition:color .3s}
+body.rtx-on .rtx-label{color:var(--grn-hot)}
+.switch{position:relative;width:40px;height:20px;border-radius:20px;background:#1a2030;transition:background .35s;flex:none;border:1px solid rgba(148,184,255,.18)}
+.switch::after{
+  content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+  background:linear-gradient(160deg,#aab3cf,#6b7392);transition:transform .35s var(--ease),background .35s;
+}
+body.rtx-on .switch{background:linear-gradient(90deg,#3d5a00,var(--grn));border-color:rgba(164,224,33,.5)}
+body.rtx-on .switch::after{transform:translateX(20px);background:linear-gradient(160deg,#f4ffe0,#a4e021);box-shadow:0 0 12px rgba(164,224,33,.8)}
+
+/* ---------- hero ---------- */
+.hero{position:relative;min-height:100svh;display:flex;flex-direction:column;overflow:hidden}
+#rtx-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0;background:radial-gradient(ellipse at 50% 40%,#101528 0%,#04060c 78%)}
+.hero-shade{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:
+    linear-gradient(90deg,rgba(4,6,12,.62) 0%,rgba(4,6,12,.28) 34%,transparent 58%),
+    radial-gradient(ellipse 90% 80% at 50% 46%,transparent 42%,rgba(4,6,12,.62) 100%),
+    linear-gradient(180deg,rgba(4,6,12,.5) 0%,transparent 18%,transparent 52%,rgba(4,6,12,.78) 88%,var(--bg) 100%);
+}
+.hero-inner{
+  position:relative;z-index:2;flex:1;display:flex;flex-direction:column;justify-content:center;
+  width:min(1240px,100%);margin:0 auto;padding:110px clamp(20px,4.5vw,44px) 96px;
+}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:12px;font-family:var(--mono);
+  font-size:.62rem;letter-spacing:.32em;color:var(--cyn);text-transform:uppercase;
+  margin-bottom:26px;width:max-content;
+  border:1px solid rgba(45,226,255,.25);border-radius:100px;padding:8px 18px 8px 12px;
+  background:rgba(10,20,30,.45);backdrop-filter:blur(8px);
+}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--cyn);box-shadow:0 0 10px 2px rgba(45,226,255,.8);animation:liveBlink 1.4s ease-in-out infinite;flex:none}
+@keyframes liveBlink{0%,100%{opacity:1}50%{opacity:.35}}
+
+h1.display{
+  font-weight:700;line-height:.94;letter-spacing:-.02em;
+  font-size:clamp(3.1rem,9.6vw,7.6rem);text-transform:uppercase;
+}
+.chrome{
+  background:linear-gradient(180deg,#ffffff 0%,#dfe6fb 16%,#7b87ab 33%,#f4f6ff 47%,#39415e 58%,#cdd6f4 74%,#ffffff 96%);
+  background-size:100% 300%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:chromePan 6.5s ease-in-out infinite alternate;
+  filter:drop-shadow(0 6px 34px rgba(120,150,255,.22));
+}
+@keyframes chromePan{from{background-position:50% 0%}to{background-position:50% 100%}}
+.neon{
+  background:linear-gradient(95deg,var(--grn) 0%,#c6ff4a 22%,var(--cyn) 55%,#7df3ff 78%,var(--grn) 100%);
+  background-size:220% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:neonFlow 5s linear infinite;
+  filter:drop-shadow(0 0 26px rgba(45,226,255,.45)) drop-shadow(0 0 60px rgba(118,185,0,.3));
+}
+@keyframes neonFlow{from{background-position:0% 50%}to{background-position:220% 50%}}
+.hero-sub{
+  max-width:480px;margin-top:30px;color:#c4cadd;font-size:1.02rem;line-height:1.68;font-weight:400;
+  text-shadow:0 2px 18px rgba(0,0,0,.9);
+}
+.hero-sub b{color:#fff;font-weight:600}
+.hero-ctas{display:flex;gap:16px;margin-top:36px;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:12px;text-decoration:none;cursor:pointer;
+  font-family:var(--mono);font-size:.74rem;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+  border-radius:6px;padding:17px 28px;border:1px solid transparent;transition:all .3s var(--ease);
+}
+.btn-primary{
+  background:linear-gradient(160deg,#b6f34c,var(--grn) 55%,#4e7a00);color:#081102;
+  box-shadow:0 0 0 1px rgba(196,255,74,.6) inset,0 10px 40px rgba(118,185,0,.4),0 2px 0 rgba(0,0,0,.4);
+}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 0 0 1px rgba(196,255,74,.8) inset,0 16px 54px rgba(118,185,0,.55),0 2px 0 rgba(0,0,0,.4)}
+.btn-ghost{
+  color:var(--txt);border-color:rgba(148,184,255,.25);background:rgba(9,12,22,.4);backdrop-filter:blur(8px);
+}
+.btn-ghost:hover{border-color:var(--cyn);color:#fff;box-shadow:0 0 30px rgba(45,226,255,.22);transform:translateY(-2px)}
+.btn svg{transition:transform .3s var(--ease)}
+.btn:hover svg{transform:translateX(5px)}
+
+.hero-stats{
+  display:flex;gap:0;margin-top:52px;width:max-content;max-width:100%;
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  background:rgba(6,9,17,.6);backdrop-filter:blur(14px);
+}
+.stat{padding:14px 26px;border-right:1px solid var(--line)}
+.stat:last-child{border-right:none}
+.stat-num{font-family:var(--mono);font-size:1.32rem;font-weight:600;color:#fff;letter-spacing:-.01em}
+.stat-num small{font-size:.62em;color:var(--dim);margin-left:2px}
+.stat-num.hot{color:var(--grn-hot);text-shadow:0 0 18px rgba(118,185,0,.7)}
+.stat-cap{font-family:var(--mono);font-size:.52rem;letter-spacing:.26em;color:var(--dim);text-transform:uppercase;margin-top:5px}
+
+.scroll-cue{
+  position:absolute;bottom:26px;left:50%;transform:translateX(-50%);z-index:3;
+  display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--dim);
+  font-family:var(--mono);font-size:.56rem;letter-spacing:.4em;text-transform:uppercase;
+}
+.scroll-line{width:1px;height:52px;background:rgba(148,184,255,.18);position:relative;overflow:hidden}
+.scroll-line::after{
+  content:"";position:absolute;left:0;top:-40%;width:100%;height:40%;
+  background:linear-gradient(180deg,transparent,var(--cyn),transparent);
+  animation:scrollDrop 2.1s var(--ease) infinite;
+}
+@keyframes scrollDrop{0%{top:-40%}100%{top:110%}}
+.hero-corner{
+  position:absolute;z-index:3;font-family:var(--mono);font-size:.55rem;
+  letter-spacing:.28em;color:var(--dim2);text-transform:uppercase;
+}
+.hero-corner.bl{bottom:24px;left:clamp(20px,4.5vw,44px)}
+.hero-corner.br{bottom:24px;right:clamp(20px,4.5vw,44px);text-align:right}
+
+/* ---------- marquee ---------- */
+.marquee{
+  overflow:hidden;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  background:rgba(6,9,17,.85);padding:13px 0;position:relative;z-index:2;
+}
+.marquee-track{
+  display:flex;gap:0;width:max-content;white-space:nowrap;
+  animation:marquee 32s linear infinite;
+}
+.marquee span{
+  font-family:var(--mono);font-size:.68rem;letter-spacing:.3em;color:var(--dim);
+  text-transform:uppercase;padding:0 34px;
+}
+.marquee i{color:var(--grn);font-style:normal}
+@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ---------- sections shared ---------- */
+section{position:relative;z-index:2}
+.wrap{width:min(1240px,100%);margin:0 auto;padding:110px clamp(20px,4.5vw,44px)}
+.eyebrow-sec{font-family:var(--mono);font-size:.62rem;letter-spacing:.4em;color:var(--grn);text-transform:uppercase;display:flex;align-items:center;gap:14px;margin-bottom:22px}
+.eyebrow-sec::before{content:"";width:36px;height:1px;background:var(--grn);box-shadow:0 0 8px rgba(118,185,0,.8)}
+h2.section-title{
+  font-size:clamp(2.2rem,5.4vw,4rem);font-weight:700;line-height:1.02;
+  letter-spacing:-.02em;text-transform:uppercase;
+}
+.section-sub{color:var(--dim);max-width:520px;margin-top:18px;line-height:1.7;font-size:.98rem}
+
+/* reveal */
+.reveal{opacity:0;transform:translateY(40px);transition:opacity .9s var(--ease),transform .9s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+
+/* ---------- feature cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:64px}
+.card{
+  --mx:50%;--my:50%;
+  position:relative;border:1px solid var(--line);border-radius:16px;
+  background:linear-gradient(165deg,rgba(19,24,40,.85),rgba(9,12,21,.9));
+  padding:30px 28px 26px;overflow:hidden;
+  transition:transform .35s var(--ease),border-color .35s,box-shadow .35s;
+  transform-style:preserve-3d;will-change:transform;
+}
+.card::before{
+  content:"";position:absolute;inset:0;opacity:0;transition:opacity .4s;pointer-events:none;
+  background:radial-gradient(600px circle at var(--mx) var(--my),rgba(45,226,255,.13),transparent 45%);
+}
+.card::after{
+  content:"";position:absolute;top:0;left:-80%;width:50%;height:100%;pointer-events:none;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.09),transparent);
+  transform:skewX(-18deg);transition:left .8s var(--ease);
+}
+.card:hover{transform:translateY(-6px);border-color:rgba(45,226,255,.35);box-shadow:0 30px 70px rgba(0,0,0,.55),0 0 0 1px rgba(45,226,255,.12) inset,0 0 44px rgba(45,226,255,.07)}
+.card:hover::before{opacity:1}
+.card:hover::after{left:140%}
+.card-icon{
+  width:58px;height:58px;border-radius:13px;display:grid;place-items:center;margin-bottom:20px;
+  background:radial-gradient(circle at 30% 30%,rgba(118,185,0,.22),rgba(45,226,255,.06));
+  border:1px solid rgba(118,185,0,.35);
+  box-shadow:0 0 24px rgba(118,185,0,.18),inset 0 0 18px rgba(118,185,0,.12);
+}
+.card h3{font-size:1.06rem;font-weight:600;letter-spacing:.02em;margin-bottom:10px}
+.card p{color:var(--dim);font-size:.86rem;line-height:1.66}
+.card-tag{
+  display:inline-block;margin-top:18px;font-family:var(--mono);font-size:.52rem;
+  letter-spacing:.3em;color:var(--cyn);border:1px solid rgba(45,226,255,.28);
+  border-radius:4px;padding:6px 10px;background:rgba(45,226,255,.05);text-transform:uppercase;
+}
+
+/* ---------- pipeline ---------- */
+.pipeline-panel{
+  border:1px solid var(--line);border-radius:20px;margin-top:64px;overflow:hidden;
+  background:linear-gradient(180deg,#0b0f1d,#070a13);
+}
+.pipeline-steps{display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--line)}
+.pstep{padding:24px 16px 22px;border-right:1px solid var(--line);position:relative}
+.pstep:last-child{border-right:none}
+.pstep-num{font-family:var(--mono);font-size:.58rem;color:var(--grn);letter-spacing:.2em}
+.pstep h4{font-size:.74rem;font-weight:600;margin:10px 0 6px;letter-spacing:.04em}
+.pstep p{font-size:.66rem;color:var(--dim);line-height:1.5}
+.pipeline-beam{height:3px;position:relative;background:rgba(148,184,255,.08);overflow:hidden}
+.pipeline-beam::after{
+  content:"";position:absolute;top:0;left:-20%;width:18%;height:100%;
+  background:linear-gradient(90deg,transparent,var(--grn),var(--cyn),transparent);
+  animation:beam 3.2s var(--ease) infinite;box-shadow:0 0 14px rgba(45,226,255,.7);
+}
+@keyframes beam{from{left:-20%}to{left:105%}}
+.code-window{background:#05070e}
+.code-bar{
+  display:flex;align-items:center;gap:8px;padding:12px 18px;border-bottom:1px solid rgba(148,184,255,.08);
+}
+.dot{width:11px;height:11px;border-radius:50%}
+.dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+.code-title{margin-left:10px;font-family:var(--mono);font-size:.62rem;color:var(--dim);letter-spacing:.18em}
+pre.code{
+  padding:24px 26px;overflow-x:auto;font-family:var(--mono);font-size:.73rem;line-height:1.82;color:#c9d4f2;
+}
+.c-kw{color:#ff7edb}.c-fn{color:#82e6ff}.c-cm{color:#4d566f;font-style:italic}.c-num{color:#f5c86e}.c-ty{color:#76b900}
+
+/* ---------- benchmark ---------- */
+.bench{
+  display:grid;grid-template-columns:1.05fr 1fr;border:1px solid var(--line);
+  border-radius:20px;overflow:hidden;margin-top:64px;
+  background:radial-gradient(120% 160% at 15% 0%,rgba(118,185,0,.1),transparent 55%),linear-gradient(180deg,#0b0f1d,#060910);
+}
+.bench-left{padding:52px 48px;border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:center}
+.big-toggle-row{display:flex;align-items:center;gap:26px;margin:34px 0 8px}
+.big-switch{
+  cursor:pointer;border:none;position:relative;width:118px;height:60px;border-radius:60px;flex:none;
+  background:#141a2b;border:1px solid rgba(148,184,255,.2);transition:all .4s var(--ease);
+}
+.big-switch::after{
+  content:"";position:absolute;top:5px;left:6px;width:48px;height:48px;border-radius:50%;
+  background:linear-gradient(160deg,#8f99b8,#565e7d);transition:all .4s var(--ease);
+}
+body.rtx-on .big-switch{
+  background:linear-gradient(90deg,#33500a,var(--grn) 60%,#a4e021);
+  box-shadow:0 0 44px rgba(118,185,0,.45),inset 0 2px 8px rgba(0,0,0,.4);
+  border-color:rgba(196,255,74,.6);
+}
+body.rtx-on .big-switch::after{transform:translateX(58px);background:linear-gradient(160deg,#ffffff,#d4f79a);box-shadow:0 0 28px rgba(196,255,74,.9)}
+.big-switch:focus-visible{outline:2px solid var(--cyn);outline-offset:4px}
+.big-state{font-family:var(--mono)}
+.big-state .state-word{font-size:2rem;font-weight:600;letter-spacing:.06em;color:var(--dim);transition:color .35s}
+body.rtx-on .big-state .state-word{color:var(--grn-hot);text-shadow:0 0 30px rgba(118,185,0,.75)}
+.big-state small{display:block;font-size:.58rem;letter-spacing:.3em;color:var(--dim2);margin-top:4px;text-transform:uppercase}
+.bench-desc{color:var(--dim);font-size:.88rem;line-height:1.7;max-width:420px}
+.bench-right{padding:40px 44px;display:flex;flex-direction:column;gap:0;justify-content:center}
+.readout-fps{display:flex;align-items:flex-end;gap:18px;border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:6px}
+#benchFps{font-family:var(--mono);font-size:4.6rem;font-weight:600;line-height:.9;color:#fff;letter-spacing:-.04em}
+#benchFps em{font-style:normal;font-size:.22em;color:var(--grn-hot);letter-spacing:.2em;margin-left:6px}
+.readout-cap{font-family:var(--mono);font-size:.52rem;letter-spacing:.3em;color:var(--dim);text-transform:uppercase;padding-bottom:10px}
+#fpsSpark{width:100%;height:74px;display:block;margin:14px 0 20px}
+.spec-rows{display:flex;flex-direction:column}
+.spec-row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:10px 2px;border-bottom:1px dashed rgba(148,184,255,.1);font-family:var(--mono);font-size:.66rem}
+.spec-row:last-child{border-bottom:none}
+.spec-row span{color:var(--dim2);letter-spacing:.14em;text-transform:uppercase}
+.spec-row b{color:#dfe6fb;font-weight:500;text-align:right}
+.spec-row b.on{color:var(--grn-hot)}
+.spec-row b.off{color:#ff7a90}
+
+/* ---------- footer ---------- */
+footer{position:relative;z-index:2;border-top:1px solid var(--line);background:rgba(4,6,12,.85);backdrop-filter:blur(10px)}
+.foot-wrap{width:min(1240px,100%);margin:0 auto;padding:56px clamp(20px,4.5vw,44px) 34px}
+.foot-top{display:flex;justify-content:space-between;align-items:flex-start;gap:40px;flex-wrap:wrap}
+.foot-tag{color:var(--dim);font-size:.82rem;margin-top:12px;max-width:280px;line-height:1.6}
+.foot-links{display:flex;gap:34px;list-style:none;flex-wrap:wrap}
+.foot-links a{color:var(--dim);text-decoration:none;font-family:var(--mono);font-size:.64rem;letter-spacing:.22em;text-transform:uppercase;transition:color .3s}
+.foot-links a:hover{color:var(--cyn)}
+.foot-bottom{
+  border-top:1px solid rgba(148,184,255,.08);margin-top:44px;padding-top:22px;
+  display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:.56rem;letter-spacing:.18em;color:var(--dim2);text-transform:uppercase;
+}
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed;bottom:30px;left:50%;transform:translate(-50%,24px);z-index:70;
+  background:rgba(8,12,22,.92);border:1px solid var(--line-hot);border-radius:100px;
+  padding:12px 26px;font-family:var(--mono);font-size:.64rem;letter-spacing:.2em;color:var(--grn-hot);
+  opacity:0;pointer-events:none;transition:all .4s var(--ease);text-transform:uppercase;
+  box-shadow:0 0 40px rgba(118,185,0,.25);backdrop-filter:blur(10px);white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ---------- responsive ---------- */
+@media (max-width:1020px){
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .pipeline-steps{grid-template-columns:repeat(3,1fr)}
+  .pstep{border-bottom:1px solid var(--line)}
+  .bench{grid-template-columns:1fr}
+  .bench-left{border-right:none;border-bottom:1px solid var(--line)}
+}
+@media (max-width:760px){
+  .nav-links{display:none}
+  .cards{grid-template-columns:1fr}
+  .pipeline-steps{grid-template-columns:repeat(2,1fr)}
+  .hero-stats{flex-wrap:wrap}
+  .stat{padding:12px 18px}
+  .hero-corner{display:none}
+  .bench-left{padding:36px 24px}
+  .bench-right{padding:30px 24px}
+  #benchFps{font-size:3.4rem}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.15s!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body class="rtx-on">
+
+<div class="bg-grid" aria-hidden="true"></div>
+<div class="noise" aria-hidden="true"></div>
+
+<!-- ══════════ NAV ══════════ -->
+<nav aria-label="Main navigation">
+  <a class="logo" href="#top" aria-label="ARENA RTX home">
+    <svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <path d="M32 2l26 15v30L32 62 6 47V17L32 2z" stroke="#76b900" stroke-width="3.5" stroke-linejoin="round"/>
+      <path d="M32 14l16.5 9.5v19L32 52 15.5 42.5v-19L32 14z" stroke="#2de2ff" stroke-width="2" stroke-opacity=".75" stroke-linejoin="round"/>
+      <circle cx="32" cy="33" r="6" fill="#76b900"/>
+      <circle cx="32" cy="33" r="2.4" fill="#04060c"/>
+    </svg>
+    <span class="logo-word">ARENA<em>//</em>RTX<small>REAL-TIME RAYTRACING</small></span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#engine">Engine</a></li>
+    <li><a href="#tech">Pipeline</a></li>
+    <li><a href="#benchmark">Benchmark</a></li>
+  </ul>
+  <div class="nav-right">
+    <button class="rtx-toggle" id="navToggle" role="switch" aria-checked="true" aria-label="Toggle RTX ray tracing">
+      <span class="led"></span>
+      <span class="switch" aria-hidden="true"></span>
+      <span class="rtx-label" id="navToggleLabel">RTX ON</span>
+    </button>
+  </div>
+</nav>
+
+<main id="top">
+<!-- ══════════ HERO ══════════ -->
+<header class="hero">
+  <canvas id="rtx-canvas" aria-hidden="true"></canvas>
+  <div class="hero-shade" aria-hidden="true"></div>
+
+  <div class="hero-inner">
+    <div class="eyebrow reveal in"><span class="live-dot"></span>Live — Rendered In Your Browser</div>
+
+    <h1 class="display">
+      <span class="chrome">Light Itself,</span><br />
+      <span class="neon">Ray-Traced.</span>
+    </h1>
+
+    <p class="hero-sub">A <b>single HTML file</b> running a <b>real-time path-traced</b> scene on your GPU — global illumination, two-bounce reflections, shadow-rayed key and accent lights, filmic grading. <b>No plugins. No build. Just photons.</b></p>
+
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="#engine">Enter the Arena
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5L13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="#tech">See the Pipeline
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v11M3.5 9L8 13.5 12.5 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
+
+    <div class="hero-stats" aria-label="Live render statistics">
+      <div class="stat"><div class="stat-num hot"><span id="fpsVal">60</span><small>FPS</small></div><div class="stat-cap">Frame Rate</div></div>
+      <div class="stat"><div class="stat-num"><span id="frameMs">16.6</span><small>MS</small></div><div class="stat-cap">Frame Time</div></div>
+      <div class="stat"><div class="stat-num">2</div><div class="stat-cap">Trace Bounces</div></div>
+      <div class="stat"><div class="stat-num">4×</div><div class="stat-cap">Supersampling</div></div>
+    </div>
+  </div>
+
+  <div class="scroll-cue" aria-hidden="true"><span>Scroll</span><div class="scroll-line"></div></div>
+  <div class="hero-corner bl">WebGL · 0 Dependencies · 1 File</div>
+  <div class="hero-corner br">An Homage to<br/>Real-Time Ray Tracing</div>
+</header>
+
+<!-- ══════════ MARQUEE ══════════ -->
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track" id="marqueeTrack">
+    <span>Global Illumination <i>//</i></span><span>Ray-Traced Reflections <i>//</i></span><span>Soft Shadow Rays <i>//</i></span><span>ACES Filmic Grade <i>//</i></span><span>Stratified 4× SSAA <i>//</i></span><span>Fresnel Dielectrics <i>//</i></span><span>Procedural Sky <i>//</i></span><span>60 FPS Or It Didn't Happen <i>//</i></span>
+  </div>
+</div>
+
+<!-- ══════════ ENGINE / FEATURES ══════════ -->
+<section id="engine">
+  <div class="wrap">
+    <div class="eyebrow-sec reveal">The Engine</div>
+    <h2 class="section-title reveal" data-delay="80">Brutal math.<br/><span class="chrome">Beautiful light.</span></h2>
+    <p class="section-sub reveal" data-delay="160">Every pixel on this page was computed — not painted. Six subsystems work in concert per frame, per pixel, right inside your browser tab.</p>
+
+    <div class="cards">
+      <article class="card reveal" data-delay="0" data-tilt>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="11" r="6.5" stroke="#a4e021" stroke-width="1.6"/><path d="M3 22.5c3.2-2.4 6.6-3.6 11-3.6s7.8 1.2 11 3.6" stroke="#2de2ff" stroke-width="1.6" stroke-linecap="round"/><path d="M9.5 9.2a5 5 0 0 1 6-1.2" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity=".85"/></svg>
+        </div>
+        <h3>Ray-Traced Reflections</h3>
+        <p>Mirror-perfect bounce lighting computed per pixel — polished chrome and dark obsidian return the whole scene, twice removed, exactly where physics says they should.</p>
+        <span class="card-tag">RTX · 2 Bounces Deep</span>
+      </article>
+
+      <article class="card reveal" data-delay="90" data-tilt>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M14 3v6M14 19v6M3 14h6M19 14h6" stroke="#2de2ff" stroke-width="1.6" stroke-linecap="round"/><circle cx="14" cy="14" r="5" stroke="#a4e021" stroke-width="1.6"/><circle cx="14" cy="14" r="1.6" fill="#ff2ea6"/></svg>
+        </div>
+        <h3>Global Illumination</h3>
+        <p>Two emissive arena orbs — one magenta, one cyan — flood the set with colored bounce light that no static bake could ever fake. Pulse synced to the room's heartbeat.</p>
+        <span class="card-tag">GI · Dynamic Point Lights</span>
+      </article>
+
+      <article class="card reveal" data-delay="180" data-tilt>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M4 6h20M7 12h14M10.5 18h7" stroke="#f5c86e" stroke-width="1.6" stroke-linecap="round"/><path d="M14 18v6" stroke="#2de2ff" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2 3"/></svg>
+        </div>
+        <h3>Shadow-Rayed Lighting</h3>
+        <p>Every lit surface fires an occlusion ray toward the warm key light and both colored accents. Terminator lost? Here, shadows are honest.</p>
+        <span class="card-tag">Shadows · 3-Light Occlusion</span>
+      </article>
+
+      <article class="card reveal" data-delay="0" data-tilt>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="3" y="3" width="22" height="22" rx="3" stroke="#a4e021" stroke-width="1.5"/><rect x="8.5" y="8.5" width="11" height="11" rx="2" stroke="#2de2ff" stroke-width="1.5"/><circle cx="14" cy="14" r="2" fill="#fff"/></svg>
+        </div>
+        <h3>Stratified Supersampling</h3>
+        <p>Four jittered samples per pixel, rotated golden-angle, melted down to one buttery ray — edges so clean they make vector art jealous.</p>
+        <span class="card-tag">AA · 4× SSAA</span>
+      </article>
+
+      <article class="card reveal" data-delay="90" data-tilt>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M4 20c4-9 8-13 10-13s6 4 10 13" stroke="#ff2ea6" stroke-width="1.6" stroke-linecap="round"/><path d="M7.5 15.5h13" stroke="#2de2ff" stroke-width="1.4" stroke-linecap="round" opacity=".8"/></svg>
+        </div>
+        <h3>ACES Filmic Grade</h3>
+        <p>Highlights roll off like celluloid — teal shadows, ember highlights, zero clipping, straight from the shader. The final 10% that sells the cinema.</p>
+        <span class="card-tag">Grade · ACES + Vignette</span>
+      </article>
+
+      <article class="card reveal" data-delay="180" data-tilt>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M9 5H5v4M19 5h4v4M9 23H5v-4M19 23h4v-4" stroke="#76b900" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="14" cy="14" r="3.4" stroke="#fff" stroke-width="1.5"/></svg>
+        </div>
+        <h3>Zero Dependencies</h3>
+        <p>One file. One canvas. One shader. No frameworks, no textures, no network — it renders offline from <code style="color:#2de2ff">file://</code> just as happily as anywhere else.</p>
+        <span class="card-tag">Web · Single File</span>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ PIPELINE / TECH ══════════ -->
+<section id="tech" style="background:linear-gradient(180deg,transparent,rgba(11,15,29,.6) 30%,rgba(11,15,29,.6) 70%,transparent)">
+  <div class="wrap">
+    <div class="eyebrow-sec reveal">Under The Hood</div>
+    <h2 class="section-title reveal" data-delay="80">Six stages.<br/><span class="neon">Zero shortcuts.</span></h2>
+
+    <div class="pipeline-panel reveal" data-delay="160">
+      <div class="pipeline-steps">
+        <div class="pstep"><div class="pstep-num">01</div><h4>Geometry</h4><p>5 spheres, 1 slab box, 1 glossy plane — solved analytically.</p></div>
+        <div class="pstep"><div class="pstep-num">02</div><h4>Ray Generation</h4><p>A cinematic orbiting camera breathes through the set.</p></div>
+        <div class="pstep"><div class="pstep-num">03</div><h4>Intersection</h4><p>Quadratic sphere tests + slab-clipped box. No acceleration structure needed at this scale.</p></div>
+        <div class="pstep"><div class="pstep-num">04</div><h4>Lighting</h4><p>Warm key + magenta &amp; cyan emitters, each shadow-rayed.</p></div>
+        <div class="pstep"><div class="pstep-num">05</div><h4>Bounce</h4><p>Fresnel-weighted reflection recursion, tinted by albedo.</p></div>
+        <div class="pstep"><div class="pstep-num">06</div><h4>Tonemap</h4><p>ACES filmic curve, lift-grade, vignette, film grain.</p></div>
+      </div>
+      <div class="pipeline-beam" aria-hidden="true"></div>
+      <div class="code-window">
+        <div class="code-bar" aria-hidden="true">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="code-title">trace.glsl — the actual heart of this page</span>
+        </div>
+        <pre class="code"><span class="c-ty">vec3</span> <span class="c-fn">trace</span>(<span class="c-ty">vec3</span> ro, <span class="c-ty">vec3</span> rd) {
+  <span class="c-ty">vec3</span> throughput = <span class="c-ty">vec3</span>(<span class="c-num">1.0</span>), radiance = <span class="c-ty">vec3</span>(<span class="c-num">0.0</span>);
+  <span class="c-kw">for</span> (<span class="c-ty">int</span> bounce = <span class="c-num">0</span>; bounce &lt; <span class="c-num">3</span>; bounce++) {
+    <span class="c-ty">Hit</span> h = <span class="c-fn">intersectScene</span>(ro, rd);      <span class="c-cm">// spheres · box · floor</span>
+    <span class="c-kw">if</span> (h.t &gt;= MAX_DIST) { radiance += throughput * <span class="c-fn">sky</span>(rd); <span class="c-kw">break</span>; }
+    radiance   += throughput * <span class="c-fn">shade</span>(h, ro, rd);  <span class="c-cm">// key + 2 shadowed accent lights</span>
+    throughput *= <span class="c-fn">fresnel</span>(h, rd) * <span class="c-fn">mix</span>(<span class="c-ty">vec3</span>(<span class="c-num">1.0</span>), h.albedo, <span class="c-num">0.72</span>);
+    ro = h.pos + h.normal * <span class="c-num">0.0025</span>;
+    rd = <span class="c-fn">reflect</span>(rd, h.normal);           <span class="c-cm">// ← the RTX part</span>
+  }
+  <span class="c-kw">return</span> <span class="c-fn">aces</span>(radiance * <span class="c-num">1.15</span>);
+}</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ BENCHMARK ══════════ -->
+<section id="benchmark">
+  <div class="wrap">
+    <div class="eyebrow-sec reveal">The Benchmark</div>
+    <h2 class="section-title reveal" data-delay="80">One switch.<br/><span class="chrome">Two realities.</span></h2>
+
+    <div class="bench reveal" data-delay="160">
+      <div class="bench-left">
+        <p class="bench-desc">Flip the switch and watch the room change its mind. <strong style="color:#fff">RTX ON</strong> runs the full path — reflections, shadow rays and 4× supersampling. <strong style="color:#fff">RTX OFF</strong> drops to a flat fast-path, the way rasterized games always promised it would.</p>
+        <div class="big-toggle-row">
+          <button class="big-switch" id="benchToggle" role="switch" aria-checked="true" aria-label="Toggle RTX ray tracing"></button>
+          <div class="big-state">
+            <div class="state-word" id="stateWord">RTX ON</div>
+            <small>Full Path-Traced Pipeline</small>
+          </div>
+        </div>
+        <p style="font-family:var(--mono);font-size:.55rem;letter-spacing:.3em;color:var(--dim2);text-transform:uppercase;margin-top:10px">Both modes are honest. One is gorgeous.</p>
+      </div>
+      <div class="bench-right">
+        <div class="readout-cap">Live Telemetry — This Tab</div>
+        <div class="readout-fps">
+          <div id="benchFps">60<em>FPS</em></div>
+        </div>
+        <canvas id="fpsSpark" role="img" aria-label="Live frames-per-second graph"></canvas>
+        <div class="spec-rows">
+          <div class="spec-row"><span>Frame Time</span><b><span id="benchMs">16.6</span> ms</b></div>
+          <div class="spec-row"><span>Render Resolution</span><b id="benchRes">—</b></div>
+          <div class="spec-row"><span>Reflections</span><b class="on" id="specRefl">ENABLED · 2 BOUNCE</b></div>
+          <div class="spec-row"><span>Supersampling</span><b class="on" id="specSsaa">4× STRATIFIED</b></div>
+          <div class="spec-row"><span>Shadow Rays</span><b class="on" id="specShadows">3 LIGHTS</b></div>
+          <div class="spec-row"><span>Tonemap</span><b>ACES FILMIC</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ══════════ FOOTER ══════════ -->
+<footer>
+  <div class="foot-wrap">
+    <div class="foot-top">
+      <div>
+        <a class="logo" href="#top" style="text-decoration:none;color:inherit" aria-label="Back to top">
+          <svg width="30" height="30" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M32 2l26 15v30L32 62 6 47V17L32 2z" stroke="#76b900" stroke-width="3.5" stroke-linejoin="round"/><circle cx="32" cy="33" r="6.5" fill="#2de2ff"/></svg>
+          <span class="logo-word" style="font-size:.95rem">ARENA<em>//</em>RTX</span>
+        </a>
+        <p class="foot-tag">A love letter to ray tracing, written in GLSL and rendered one photon at a time.</p>
+      </div>
+      <ul class="foot-links">
+        <li><a href="#engine">Engine</a></li>
+        <li><a href="#tech">Pipeline</a></li>
+        <li><a href="#benchmark">Benchmark</a></li>
+        <li><a href="https://github.com/Teddyfeit/arena.ai" rel="noopener">View Source</a></li>
+      </ul>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Arena.ai — All photons reserved</span>
+      <span>Designed &amp; Ray-Traced in Braunschweig, DE</span>
+      <span>GPU: Yours · Driver: Courage</span>
+    </div>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite">RTX ON</div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════
+   ARENA//RTX — a real-time ray tracer in one file
+   ═══════════════════════════════════════════════════════════════ */
+
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let rtxOn = true;
+
+/* ─────────── WebGL ray tracer ─────────── */
+const canvas = document.getElementById('rtx-canvas');
+const hero = canvas.closest('.hero');
+const gl = canvas.getContext('webgl', { antialias: false, alpha: false, depth: false, powerPreference: 'high-performance' });
+
+const VERT = `
+attribute vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+const FRAG = `
+precision highp float;
+
+uniform vec2  u_res;
+uniform float u_time;
+uniform vec2  u_orbit;   /* mouse, -1..1 */
+uniform float u_rtx;     /* 1 = full path, 0 = fast path */
+
+#define MAX_DIST 60.0
+
+float hash12(vec2 p){
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float hash13(vec3 p){
+  vec3 p3 = fract(p * 0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+struct Hit {
+  float t;
+  vec3  n;
+  vec3  albedo;
+  float refl;
+  float emis;
+  vec3  emisCol;
+};
+
+Hit missHit(){
+  Hit h;
+  h.t = MAX_DIST; h.n = vec3(0.0, 1.0, 0.0);
+  h.albedo = vec3(0.0); h.refl = 0.0; h.emis = 0.0; h.emisCol = vec3(0.0);
+  return h;
+}
+
+void iSphere(vec3 ro, vec3 rd, vec3 c, float r, vec3 albedo, float refl,
+             float emis, vec3 emisCol, inout Hit best){
+  vec3 oc = ro - c;
+  float b = dot(oc, rd);
+  float ct = dot(oc, oc) - r * r;
+  float disc = b * b - ct;
+  if (disc < 0.0) return;
+  float t = -b - sqrt(disc);
+  if (t < 0.001) t = -b + sqrt(disc);
+  if (t < 0.001 || t >= best.t) return;
+  best.t = t;
+  best.n = normalize(ro + rd * t - c);
+  best.albedo = albedo; best.refl = refl;
+  best.emis = emis; best.emisCol = emisCol;
+}
+
+void iBox(vec3 ro, vec3 rd, vec3 c, vec3 half_e, vec3 albedo, float refl,
+          inout Hit best){
+  vec3 inv = 1.0 / rd;
+  vec3 t0 = (c - half_e - ro) * inv;
+  vec3 t1 = (c + half_e - ro) * inv;
+  vec3 tsm = min(t0, t1), tbg = max(t0, t1);
+  float tNear = max(max(tsm.x, tsm.y), tsm.z);
+  float tFar  = min(min(tbg.x, tbg.y), tbg.z);
+  if (tNear >= tFar || tFar < 0.001 || tNear < 0.0 || tNear >= best.t) return;
+  best.t = tNear;
+  vec3 n = vec3(0.0);
+  if (tsm.x >= tsm.y && tsm.x >= tsm.z) n = vec3(-sign(rd.x), 0.0, 0.0);
+  else if (tsm.y >= tsm.z)              n = vec3(0.0, -sign(rd.y), 0.0);
+  else                                  n = vec3(0.0, 0.0, -sign(rd.z));
+  best.n = n;
+  best.albedo = albedo; best.refl = refl; best.emis = 0.0; best.emisCol = vec3(0.0);
+}
+
+vec3 magentaPos(){ return vec3( 1.95, 0.92, -4.05); }
+vec3 cyanPos()   { return vec3( 2.35, 0.40, -1.15); }
+float magPulse() { return 1.55 + 0.55 * sin(u_time * 2.1); }
+float cynPulse() { return 2.10 + 0.60 * sin(u_time * 2.6 + 1.7); }
+float bob()      { return sin(u_time * 0.8) * 0.16; }
+
+Hit intersectScene(vec3 ro, vec3 rd){
+  Hit best = missHit();
+
+  /* glossy floor */
+  if (rd.y < -0.0001){
+    float t = -ro.y / rd.y;
+    if (t > 0.001 && t < best.t){
+      vec2 gp = ro.xz + rd.xz * t;
+      float chk = mod(floor(gp.x * 0.45) + floor(gp.y * 0.45), 2.0);
+      vec3 base = mix(vec3(0.042, 0.047, 0.062), vec3(0.075, 0.082, 0.105), chk);
+      vec2 gg = abs(fract(gp * 0.45) - 0.5);
+      float line = smoothstep(0.045, 0.0, min(gg.x, gg.y));
+      base += vec3(0.05, 0.5, 0.58) * line * 0.85;
+      best.t = t; best.n = vec3(0.0, 1.0, 0.0);
+      best.albedo = base; best.refl = 0.62; best.emis = 0.0; best.emisCol = vec3(0.0);
+    }
+  }
+
+  iSphere(ro, rd, vec3(-1.75, 1.02, -3.55), 1.02, vec3(0.96, 0.97, 1.00), 0.92, 0.0, vec3(0.0), best); /* chrome   */
+  iSphere(ro, rd, vec3( 0.18, 0.70, -1.55), 0.70, vec3(1.00, 0.76, 0.32), 0.60, 0.0, vec3(0.0), best); /* gold     */
+  iSphere(ro, rd, magentaPos(),             0.88, vec3(0.10, 0.05, 0.08), 0.25, magPulse(), vec3(1.0, 0.16, 0.58), best); /* neon magenta */
+  iSphere(ro, rd, cyanPos(),                0.40, vec3(0.05, 0.08, 0.10), 0.20, cynPulse(), vec3(0.14, 0.85, 1.0), best); /* neon cyan    */
+  iSphere(ro, rd, vec3(-0.55, 1.72 + bob(), -5.4), 0.74, vec3(0.055, 0.055, 0.075), 0.80, 0.0, vec3(0.0), best);         /* obsidian orb */
+  iSphere(ro, rd, vec3(-2.55, 0.42, -1.75), 0.42, vec3(0.92, 0.90, 0.86), 0.16, 0.0, vec3(0.0), best);                   /* ceramic      */
+  iBox(ro, rd, vec3(3.55, 0.72, -2.75), vec3(0.72, 0.72, 0.72), vec3(0.085, 0.092, 0.118), 0.45, best);                 /* graphite slab */
+
+  return best;
+}
+
+/* occlusion test for shadow rays — emissive orbs never block light */
+float shadowOcclusion(vec3 ro, vec3 rd, float maxt){
+  Hit best = missHit();
+  best.t = maxt;
+  iSphere(ro, rd, vec3(-1.75, 1.02, -3.55), 1.02, vec3(0.0), 0.0, 0.0, vec3(0.0), best);
+  iSphere(ro, rd, vec3( 0.18, 0.70, -1.55), 0.70, vec3(0.0), 0.0, 0.0, vec3(0.0), best);
+  iSphere(ro, rd, vec3(-0.55, 1.72 + bob(), -5.4), 0.74, vec3(0.0), 0.0, 0.0, vec3(0.0), best);
+  iSphere(ro, rd, vec3(-2.55, 0.42, -1.75), 0.42, vec3(0.0), 0.0, 0.0, vec3(0.0), best);
+  iBox(ro, rd, vec3(3.55, 0.72, -2.75), vec3(0.72, 0.72, 0.72), vec3(0.0), 0.0, best);
+  return (best.t < maxt) ? 0.16 : 1.0;
+}
+
+vec3 sky(vec3 rd){
+  float h = max(rd.y, 0.0);
+  vec3 zen = vec3(0.015, 0.025, 0.065);
+  vec3 hor = vec3(0.115, 0.135, 0.235);
+  vec3 col = mix(hor, zen, pow(h, 0.55));
+
+  /* low sun + ember glow */
+  vec3 sunDir = normalize(vec3(-0.55, 0.16, -0.82));
+  float sd = max(dot(rd, sunDir), 0.0);
+  col += vec3(1.0, 0.72, 0.42) * pow(sd, 900.0) * 14.0;
+  col += vec3(1.0, 0.55, 0.30) * pow(sd, 10.0) * 0.32;
+
+  /* dusk nebula bands */
+  float neb = sin(rd.x * 6.5 + 0.7) * sin(rd.y * 11.0 - 0.4) * sin(rd.z * 5.2 + 2.1);
+  col += vec3(0.11, 0.05, 0.18) * (neb * 0.5 + 0.5) * smoothstep(0.02, 0.55, rd.y) * 0.5;
+
+  /* stars, twinkling */
+  vec3 sp = rd * 130.0;
+  float s = hash13(floor(sp));
+  float star = smoothstep(0.994, 1.0, s) * smoothstep(0.03, 0.3, rd.y);
+  star *= 0.6 + 0.4 * sin(u_time * 2.0 + s * 44.0);
+  col += vec3(0.85, 0.9, 1.0) * star * 1.6;
+
+  /* horizon smudge below eye level */
+  col += vec3(0.05, 0.07, 0.11) * smoothstep(0.0, -0.25, rd.y);
+  return col;
+}
+
+vec3 pointLight(vec3 p, vec3 n, vec3 albedo, vec3 V, vec3 lp, vec3 lc, float li){
+  vec3 L = lp - p;
+  float d = length(L);
+  L /= d;
+  float sh = shadowOcclusion(p + n * 0.003, L, max(d - 0.55, 0.05));
+  float att = li / (1.0 + d * d * 0.85);
+  float ndl = max(dot(n, L), 0.0);
+  vec3 hv = normalize(L + V);
+  float spec = pow(max(dot(n, hv), 0.0), 48.0);
+  return (albedo * ndl * (1.0 - 0.4) + spec * mix(vec3(0.5), albedo, 0.6)) * lc * att * sh;
+}
+
+vec3 shade(vec3 p, vec3 n, vec3 rd, Hit h){
+  vec3 V = -rd;
+
+  /* warm key light */
+  vec3 ldir = normalize(vec3(0.55, 0.78, 0.42));
+  vec3 lcol = vec3(1.0, 0.93, 0.84) * 1.35;
+  float sh  = shadowOcclusion(p + n * 0.003, ldir, MAX_DIST);
+  float ndl = max(dot(n, ldir), 0.0);
+  vec3 hv   = normalize(ldir + V);
+  float metal = clamp(h.refl, 0.0, 1.0);
+  float spec = pow(max(dot(n, hv), 0.0), 64.0) * 0.75;
+  vec3 col = h.albedo * (1.0 - metal * 0.72) * ndl * sh * lcol;
+  col += spec * sh * lcol * mix(vec3(1.0), h.albedo, metal);
+
+  /* hemispheric ambient — sky above, bounce below */
+  col += h.albedo * (0.16 + 0.16 * max(n.y, 0.0)) * vec3(0.55, 0.66, 0.88);
+  col += h.albedo * max(-n.y, 0.0) * 0.10 * vec3(0.7, 0.62, 0.5);
+
+  /* colored accent lights from the emissive orbs */
+  col += pointLight(p, n, h.albedo, V, magentaPos(), vec3(1.0, 0.20, 0.62), magPulse() * 3.4);
+  col += pointLight(p, n, h.albedo, V, cyanPos(),    vec3(0.18, 0.85, 1.0), cynPulse() * 2.6);
+
+  return col;
+}
+
+vec3 trace(vec3 ro, vec3 rd){
+  vec3 throughput = vec3(1.0);
+  vec3 radiance   = vec3(0.0);
+
+  for (int bounce = 0; bounce < 3; bounce++){
+    Hit h = intersectScene(ro, rd);
+
+    if (h.t >= MAX_DIST - 0.5){ radiance += throughput * sky(rd); break; }
+
+    vec3 p = ro + rd * h.t;
+
+    if (h.emis > 0.0){ radiance += throughput * h.emisCol * h.emis; break; }
+
+    radiance += throughput * shade(p, h.n, rd, h);
+
+    float fr = pow(1.0 - clamp(dot(h.n, -rd), 0.0, 1.0), 5.0);
+    float reflAmt = clamp(h.refl + fr * (1.0 - h.refl) * 0.85, 0.0, 0.97);
+    if (u_rtx < 0.5) reflAmt = 0.0;
+
+    throughput *= reflAmt * mix(vec3(1.0), h.albedo, 0.72);
+    if (max(throughput.r, max(throughput.g, throughput.b)) < 0.02) break;
+
+    ro = p + h.n * 0.0025;
+    rd = reflect(rd, h.n);
+  }
+  return radiance;
+}
+
+vec3 aces(vec3 x){
+  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+`;
+const FRAG_MAIN = `
+void main(){
+  vec2 fc = gl_FragCoord.xy;
+
+  float ang = u_time * 0.055 + u_orbit.x * 0.38;
+  vec3 look = vec3(0.0, 0.88, -2.55);
+  float rad = 5.6;
+  vec3 ro = vec3(sin(ang) * rad, 1.95 + u_orbit.y * 0.5, look.z + cos(ang) * rad);
+  vec3 ww = normalize(look - ro);
+  vec3 uu = normalize(cross(vec3(0.0, 1.0, 0.0), ww));
+  vec3 vv = cross(ww, uu);
+  float flen = 1.32;
+
+  int SAMPLES = (u_rtx > 0.5) ? 4 : 1;
+  vec3 col = vec3(0.0);
+
+  for (int i = 0; i < 4; i++){
+    if (i >= SAMPLES) break;
+    vec2 strat;
+    if (SAMPLES == 4){
+      strat = (vec2(mod(float(i), 2.0), floor(float(i) / 2.0)) + 0.5) / 2.0 - 0.5;
+    } else {
+      strat = vec2(0.0);
+    }
+    vec2 ndc = (2.0 * (fc + strat * 1.2) - u_res) / u_res.y;
+    vec3 rd = normalize(ww * flen + uu * ndc.x + vv * ndc.y);
+    col += trace(ro, rd);
+  }
+  col /= float(SAMPLES);
+
+  col = aces(col * 1.15);
+  col = pow(col, vec3(0.97, 1.0, 1.05));            /* teal-tinged grade */
+
+  vec2 q = fc / u_res - 0.5;                        /* vignette */
+  col *= 1.0 - dot(q, q) * 0.9;
+
+  float g = hash12(fc + fract(u_time) * 371.0) - 0.5; /* film grain */
+  col += g * 0.028;
+
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+let glState = null;
+function initGL(){
+  if (!gl) return null;
+
+  function compile(type, src){
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+      console.error('Shader error:', gl.getShaderInfoLog(sh));
+      gl.deleteShader(sh);
+      return null;
+    }
+    return sh;
+  }
+  /* single shader source: core ray-tracer + camera main() */
+  const fragSource = FRAG + FRAG_MAIN;
+  const vs = compile(gl.VERTEX_SHADER, VERT);
+  const fs = compile(gl.FRAGMENT_SHADER, fragSource);
+  if (!vs || !fs) return null;
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+    console.error('Link error:', gl.getProgramInfoLog(prog));
+    return null;
+  }
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'a_pos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  return {
+    prog,
+    uRes:    gl.getUniformLocation(prog, 'u_res'),
+    uTime:   gl.getUniformLocation(prog, 'u_time'),
+    uOrbit:  gl.getUniformLocation(prog, 'u_orbit'),
+    uRtx:    gl.getUniformLocation(prog, 'u_rtx'),
+  };
+}
+
+glState = initGL();
+
+function resizeCanvas(){
+  if (!glState) return;
+  const renderScale = 0.8;
+  const w = Math.max(2, Math.floor(hero.clientWidth * renderScale));
+  const h = Math.max(2, Math.floor(hero.clientHeight * renderScale));
+  if (canvas.width !== w || canvas.height !== h){
+    canvas.width = w; canvas.height = h;
+    gl.viewport(0, 0, w, h);
+    updateBenchRes();
+  }
+}
+
+/* ─────────── live telemetry ─────────── */
+const fpsVal = document.getElementById('fpsVal');
+const frameMs = document.getElementById('frameMs');
+const benchFps = document.getElementById('benchFps');
+const benchMs = document.getElementById('benchMs');
+const benchRes = document.getElementById('benchRes');
+const spark = document.getElementById('fpsSpark');
+const sctx = spark.getContext('2d');
+
+function updateBenchRes(){
+  benchRes.textContent = canvas.width + ' × ' + canvas.height + ' · 0.8× SCALE';
+}
+
+const HIST_LEN = 96;
+const history = new Array(HIST_LEN).fill(60);
+let emaFps = 60, lastTelemetry = 0, lastSpark = 0;
+
+function drawSpark(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = spark.clientWidth, h = spark.clientHeight;
+  if (spark.width !== Math.floor(w * dpr)){
+    spark.width = Math.floor(w * dpr); spark.height = Math.floor(h * dpr);
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  sctx.clearRect(0, 0, w, h);
+  /* baseline at 60fps */
+  const cap = 144;
+  const yFor = v => h - (Math.min(v, cap) / cap) * (h - 8) - 4;
+  sctx.strokeStyle = 'rgba(148,184,255,.18)';
+  sctx.setLineDash([4, 5]);
+  sctx.beginPath(); sctx.moveTo(0, yFor(60)); sctx.lineTo(w, yFor(60)); sctx.stroke();
+  sctx.setLineDash([]);
+  /* filled line */
+  const grad = sctx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, '#76b900'); grad.addColorStop(.55, '#2de2ff'); grad.addColorStop(1, '#ff2ea6');
+  sctx.beginPath();
+  for (let i = 0; i < HIST_LEN; i++){
+    const x = (i / (HIST_LEN - 1)) * w;
+    const y = yFor(history[i]);
+    i === 0 ? sctx.moveTo(x, y) : sctx.lineTo(x, y);
+  }
+  sctx.strokeStyle = grad; sctx.lineWidth = 2; sctx.stroke();
+  sctx.lineTo(w, h); sctx.lineTo(0, h); sctx.closePath();
+  sctx.fillStyle = 'rgba(45,226,255,.08)'; sctx.fill();
+}
+
+function pushTelemetry(dt, now){
+  const fps = 1 / Math.max(dt, 1e-4);
+  emaFps = emaFps * 0.94 + fps * 0.06;
+  history.push(emaFps); history.shift();
+
+  if (now - lastTelemetry > 400){
+    lastTelemetry = now;
+    const f = Math.round(emaFps);
+    fpsVal.textContent = f;
+    benchFps.innerHTML = f + '<em>FPS</em>';
+    frameMs.textContent = (1000 / emaFps).toFixed(1);
+    benchMs.textContent = (1000 / emaFps).toFixed(1);
+  }
+  if (now - lastSpark > 250){ lastSpark = now; drawSpark(); }
+}
+
+/* ─────────── render loop ─────────── */
+const orbit = { x: 0, y: 0 };
+function onPointerMove(e){
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = -((e.clientY / window.innerHeight) * 2 - 1);
+  orbit.x += (nx - orbit.x) * 0.06;
+  orbit.y += (ny - orbit.y) * 0.06;
+}
+if (!REDUCED) window.addEventListener('pointermove', onPointerMove, { passive: true });
+
+const t0 = performance.now();
+let prev = t0;
+
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - prev) / 1000);
+  prev = now;
+  const t = REDUCED ? 0 : (now - t0) / 1000;
+
+  if (glState){
+    resizeCanvas();
+    gl.uniform2f(glState.uRes, canvas.width, canvas.height);
+    gl.uniform1f(glState.uTime, t);
+    gl.uniform2f(glState.uOrbit, orbit.x, orbit.y);
+    gl.uniform1f(glState.uRtx, rtxOn ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  pushTelemetry(dt, now);
+}
+if (glState){
+  resizeCanvas();
+  updateBenchRes();
+  requestAnimationFrame(frame);
+} else {
+  /* graceful fallback — pure CSS still looks intentional */
+  canvas.style.opacity = '0';
+}
+window.addEventListener('resize', () => { resizeCanvas(); drawSpark(); });
+
+/* ─────────── RTX toggle (nav + benchmark, synced) ─────────── */
+const toast = document.getElementById('toast');
+let toastTimer = null;
+
+function showToast(msg){
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+const specRefl = document.getElementById('specRefl');
+const specSsaa = document.getElementById('specSsaa');
+const specShadows = document.getElementById('specShadows');
+const stateWord = document.getElementById('stateWord');
+const navToggleLabel = document.getElementById('navToggleLabel');
+
+function setRTX(on, announce){
+  rtxOn = on;
+  document.body.classList.toggle('rtx-on', on);
+  document.getElementById('navToggle').setAttribute('aria-checked', String(on));
+  document.getElementById('benchToggle').setAttribute('aria-checked', String(on));
+  navToggleLabel.textContent = on ? 'RTX ON' : 'RTX OFF';
+  stateWord.textContent = on ? 'RTX ON' : 'RTX OFF';
+
+  specRefl.textContent = on ? 'ENABLED · 2 BOUNCE' : 'DISABLED';
+  specRefl.className = on ? 'on' : 'off';
+  specSsaa.textContent = on ? '4× STRATIFIED' : '1× FAST PATH';
+  specSsaa.className = on ? 'on' : 'off';
+  specShadows.textContent = on ? '3 LIGHTS' : '1 KEY ONLY';
+  specShadows.className = on ? 'on' : 'off';
+
+  if (announce){
+    showToast(on
+      ? 'RTX ON — REFLECTIONS · GI · 4× SSAA'
+      : 'RTX OFF — RASTERIZED FAST PATH');
+  }
+}
+document.getElementById('navToggle').addEventListener('click', () => setRTX(!rtxOn, true));
+document.getElementById('benchToggle').addEventListener('click', () => setRTX(!rtxOn, true));
+
+/* ─────────── card spotlight + tilt ─────────── */
+document.querySelectorAll('[data-tilt]').forEach(card => {
+  card.addEventListener('pointermove', e => {
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width;
+    const py = (e.clientY - r.top) / r.height;
+    card.style.setProperty('--mx', (px * 100) + '%');
+    card.style.setProperty('--my', (py * 100) + '%');
+    if (REDUCED) return;
+    card.style.transform =
+      'perspective(900px) rotateX(' + ((0.5 - py) * 7).toFixed(2) + 'deg) rotateY(' + ((px - 0.5) * 9).toFixed(2) + 'deg) translateY(-6px)';
+  });
+  card.addEventListener('pointerleave', () => { card.style.transform = ''; });
+});
+
+/* ─────────── scroll reveal ─────────── */
+const revealIO = new IntersectionObserver(entries => {
+  for (const entry of entries){
+    if (entry.isIntersecting){
+      const delay = Number(entry.target.dataset.delay || 0);
+      entry.target.style.transitionDelay = delay + 'ms';
+      entry.target.classList.add('in');
+      revealIO.unobserve(entry.target);
+    }
+  }
+}, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+document.querySelectorAll('.reveal').forEach(el => revealIO.observe(el));
+
+/* initial spec readouts */
+updateBenchRes();
+drawSpark();
+</script>
+</body>
+</html>
