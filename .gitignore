@@ -2,7 +2,5 @@
 cache.db*
 app_profile/
 __pycache__/
-memory_map_data.json
 discord_watchlist.json
-.nexus-*.tmp
 .discord-watch-*.tmp
