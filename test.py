@@ -1030,6 +1030,7 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
  <div class="main">
   <div class="tb" id="tb">
    <button class="iconbtn" id="sbBtn" title="Seitenleiste ein/aus"></button>
+   <a class="iconbtn" id="deskBtn" href="/" title="Zur Tool-Auswahl" aria-label="Zur Tool-Auswahl"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6"/></svg></a>
    <h2 id="ttl">Start</h2>
    <div class="pill" id="pill"><span class="spin"></span><input id="q" placeholder="Username or User ID" autocomplete="off" spellcheck="false"><button class="go" id="go" aria-label="Search">Search</button></div><button class="iconbtn toolbar-theme" id="toolbarTheme" title="Toggle light and dark theme" aria-label="Toggle theme"></button>
   </div>
