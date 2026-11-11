@@ -1,6 +1,6 @@
-# FIELDKIT — combined Avatar Finder + Discord Name Radar.
+# FIELDKIT — Roblox Avatar Finder + Lookup Desk.
 # Start with: python tool_hub.py
-import argparse, os, sys, json, re, time, sqlite3, threading, webbrowser, subprocess, tempfile, secrets
+import argparse, os, sys, json, re, time, sqlite3, threading, webbrowser, subprocess, tempfile
 import urllib.request, urllib.error, urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -327,236 +327,7 @@ def outfits_payload(uid, fresh=False):
 
 
 ROOT = Path(__file__).resolve().parent
-WATCH_FILE = ROOT / "discord_watchlist.json"
-WATCH_LOCK = threading.Lock()
-MAX_BODY = 2 * 1024 * 1024
-NAME_RE = re.compile(r"^[a-z0-9._]{2,32}$")
-STATUSES = {"watching", "available", "taken", "parked"}
-PRIORITIES = {"low", "normal", "high"}
-INTERVALS = {5, 10, 15, 30, 60}
-
-
-def stamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def default_watchlist() -> dict:
-    return {
-        "version": 1,
-        "names": [],
-        "settings": {"checkInterval": 15, "desktopNotifications": False, "sound": False, "notifyOnAvailable": True, "remindOnlyWatching": True, "compact": False, "confirmDelete": True, "copyFormat": "plain", "quietStart": "22:00", "quietEnd": "08:00", "sort": "priority"},
-        "events": [],
-        "savedAt": stamp(),
-    }
-
-
-def valid_name(value: object) -> str:
-    name = str(value or "").strip().lower()
-    if not NAME_RE.fullmatch(name) or name.startswith(".") or name.endswith(".") or ".." in name:
-        raise ValueError("Use 2–32 lowercase letters, numbers, underscores or dots; dots cannot repeat or be at either end.")
-    return name
-
-
-def clean_watchlist(value: object) -> dict:
-    if not isinstance(value, dict) or not isinstance(value.get("names"), list):
-        raise ValueError("Expected a watchlist with a names array.")
-    if len(value["names"]) > 500:
-        raise ValueError("The watchlist is limited to 500 candidates.")
-    names, seen = [], set()
-    for row in value["names"]:
-        if not isinstance(row, dict):
-            continue
-        name = valid_name(row.get("name"))
-        key = name.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        status = str(row.get("status", "watching"))
-        priority = str(row.get("priority", "normal"))
-        names.append({
-            "id": str(row.get("id") or f"name-{len(names)+1}")[:48],
-            "name": name,
-            "status": status if status in STATUSES else "watching",
-            "priority": priority if priority in PRIORITIES else "normal",
-            "notes": str(row.get("notes", ""))[:500],
-            "createdAt": str(row.get("createdAt") or stamp())[:40],
-            "updatedAt": str(row.get("updatedAt") or stamp())[:40],
-        })
-    source_settings = value.get("settings") if isinstance(value.get("settings"), dict) else {}
-    try:
-        interval = int(source_settings.get("checkInterval", 15))
-    except (TypeError, ValueError):
-        interval = 15
-    def clock_value(key: str, fallback: str) -> str:
-        candidate = str(source_settings.get(key, fallback))
-        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", candidate):
-            return fallback
-        return candidate
-    settings = {
-        "checkInterval": interval if interval in INTERVALS else 15,
-        "desktopNotifications": source_settings.get("desktopNotifications") is True,
-        "sound": source_settings.get("sound") is True,
-        "notifyOnAvailable": source_settings.get("notifyOnAvailable", True) is True,
-        "remindOnlyWatching": source_settings.get("remindOnlyWatching", True) is True,
-        "compact": source_settings.get("compact") is True,
-        "confirmDelete": source_settings.get("confirmDelete", True) is True,
-        "copyFormat": source_settings.get("copyFormat") if source_settings.get("copyFormat") in {"plain", "mention"} else "plain",
-        "quietStart": clock_value("quietStart", "22:00"),
-        "quietEnd": clock_value("quietEnd", "08:00"),
-        "sort": source_settings.get("sort") if source_settings.get("sort") in {"priority", "name", "recent"} else "priority",
-    }
-    events = value.get("events", [])
-    if not isinstance(events, list):
-        events = []
-    cleaned_events = [
-        {"at": str(event.get("at") or stamp())[:40], "text": str(event.get("text", ""))[:200]}
-        for event in events[-60:] if isinstance(event, dict)
-    ]
-    return {"version": 1, "names": names, "settings": settings, "events": cleaned_events, "savedAt": str(value.get("savedAt") or stamp())[:40]}
-
-
-def load_watchlist() -> dict:
-    with WATCH_LOCK:
-        try:
-            return clean_watchlist(json.loads(WATCH_FILE.read_text(encoding="utf-8")))
-        except (OSError, ValueError, json.JSONDecodeError):
-            return default_watchlist()
-
-
-def save_watchlist(value: dict) -> dict:
-    data = clean_watchlist(value)
-    data["savedAt"] = stamp()
-    payload = json.dumps(data, ensure_ascii=False, indent=2)
-    with WATCH_LOCK:
-        fd, tmp = tempfile.mkstemp(prefix=".discord-watch-", suffix=".tmp", dir=ROOT)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(payload)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, WATCH_FILE)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-    return data
-
-
-NAME_HTML = '<!doctype html>\n<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f8ff"><title>Discord Name Ideas</title>\n<style>\n:root{color-scheme:light;--ink:#1c2940;--muted:#5b6980;--blue:#5368e8;--blue2:#3f54d6;--line:#dfe6f1;--paper:#fff;--wash:#f5f8ff;--green:#14804a;--red:#bb3c4a;--shadow:0 18px 48px rgba(53,72,116,.09)}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#eef4ff,#f8faff 56%,#edf7f5);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}button,input,select{font:inherit}button{cursor:pointer}.shell{width:min(1080px,calc(100% - 36px));margin:0 auto;padding:20px 0 52px}.top{display:flex;align-items:center;gap:12px;padding:3px 0 18px;border-bottom:1px solid var(--line)}.mark{width:42px;height:42px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(135deg,#6679f4,#8898ff);color:white;font-weight:800;font-size:20px;box-shadow:0 7px 17px #6477ea38}.brand{font-weight:780;font-size:17px;letter-spacing:-.02em}.brand small{display:block;color:var(--muted);font-weight:500;font-size:12px;letter-spacing:.04em}.saved{margin-left:auto;color:var(--green);font-size:13px}.hero{padding:30px 0 18px}.eyebrow{color:#5264bd;font-size:12px;font-weight:750;letter-spacing:.14em;text-transform:uppercase}.hero h1{margin:5px 0 8px;font-size:clamp(30px,5vw,44px);line-height:1.12;letter-spacing:-.045em}.hero p{max-width:760px;margin:0;color:var(--muted);font-size:17px}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0}.step,.card,.result,.notice{background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:0 5px 20px rgba(53,72,116,.045)}.step{padding:14px 16px}.step b{display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:14px}.step i{width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#edf0ff;color:#4b5ed3;font-style:normal}.step span{color:var(--muted);font-size:13px}.card{padding:20px;margin:15px 0}.card h2{margin:0 0 5px;font-size:21px;letter-spacing:-.02em}.sub{margin:0 0 16px;color:var(--muted);font-size:14px}.controls{display:grid;grid-template-columns:1fr 1fr 1.25fr auto;align-items:end;gap:13px}.field label{display:block;margin-bottom:6px;font-weight:680;font-size:13px}.field small{display:block;margin-top:5px;color:var(--muted);font-size:12px}.field input,.field select{width:100%;height:46px;padding:0 12px;border:1px solid #cbd6e6;border-radius:10px;background:white;color:var(--ink)}.field input:focus,.field select:focus{outline:3px solid #5368e822;border-color:#6478ef}.btn{min-height:44px;padding:0 16px;border:1px solid #cbd6e6;border-radius:10px;background:white;color:var(--ink);font-weight:680;transition:.15s}.btn:hover{transform:translateY(-1px);box-shadow:0 5px 15px #3c52821c}.btn.primary{background:var(--blue);border-color:var(--blue);color:white}.btn.primary:hover{background:var(--blue2)}.btn.good{background:#ebf8f0;color:#116b3e;border-color:#b9e2c8}.btn.bad{background:#fff3f3;color:#a3313b;border-color:#f0c7cb}.results-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.results-head h2{margin:0;font-size:20px}.counts{color:var(--muted);font-size:13px}.list{display:grid;gap:9px}.result{display:flex;align-items:center;gap:12px;padding:12px 14px;box-shadow:none}.name{font:700 19px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.035em;overflow-wrap:anywhere}.name-wrap{min-width:0;flex:1}.badge{display:inline-flex;margin-top:4px;padding:2px 9px;border-radius:99px;background:#eef2f8;color:#54637a;font-size:11px;font-weight:700}.badge.available{background:#e7f7ed;color:#167344}.badge.taken{background:#fff0f0;color:#a93641}.actions{display:flex;flex-wrap:wrap;gap:7px}.actions .btn{min-height:36px;padding:0 11px;font-size:13px}.empty{padding:32px 15px;text-align:center;color:var(--muted)}.empty b{display:block;margin-bottom:4px;color:var(--ink);font-size:17px}.notice{padding:14px 16px;color:#45536a;font-size:13px;line-height:1.55}.notice strong{color:#263650}.settings{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}.settings p{margin:0;color:var(--muted);font-size:13px}.webhook{display:flex;gap:8px;min-width:min(490px,100%)}.webhook input{min-width:0;flex:1;height:42px;padding:0 11px;border:1px solid #cbd6e6;border-radius:9px;background:white}.webhook-state{grid-column:1/-1;color:var(--muted);font-size:12px}.toast{position:fixed;right:18px;bottom:18px;z-index:4;max-width:min(420px,calc(100vw - 36px));padding:13px 16px;background:#1d2940;color:white;border-radius:12px;box-shadow:0 10px 35px #1d294044}.toast.error{background:#9f3040}.footer{padding-top:14px;color:#758197;font-size:12px;text-align:center}.hidden{display:none!important}\n@media(max-width:760px){.steps{grid-template-columns:1fr}.controls{grid-template-columns:1fr 1fr}.controls .field:nth-child(3){grid-column:1/-1}.controls>.btn{grid-column:1/-1}.settings{grid-template-columns:1fr}.webhook{min-width:0}.result{align-items:flex-start;flex-direction:column}.actions{width:100%}.actions .btn{flex:1}.saved{font-size:11px}}\n@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}\n\n.embedded .shell{width:min(1040px,calc(100% - 22px));padding:10px 0 24px}.embedded .top{display:none}.embedded .hero{padding-top:7px}.embedded .hero h1{font-size:clamp(26px,3vw,36px)}.embedded .steps{margin:12px 0}.embedded .card{padding:15px;margin:10px 0}.embedded .footer{display:none}\n</style></head><body><main class="shell">\n<header class="top"><div class="mark">@</div><div class="brand">NAME IDEAS<small>DISCORD · OFFLINE-GENERATOR</small></div><span class="saved" id="saveState" aria-live="polite">Lokal gespeichert</span></header>\n<section class="hero"><div class="eyebrow">EINFACH STARTEN</div><h1>Finde deine nächste Namensidee.</h1><p>Wähle eine Länge und erzeuge Vorschläge. FIELDKIT prüft Discord-Namen nicht automatisch. Wenn du selbst geprüft hast, kannst du einen verfügbaren Namen an deinen Discord-Webhook senden.</p></section>\n<section class="steps" aria-label="So funktioniert es"><article class="step"><b><i>1</i>Ideen erzeugen</b><span>Lege fest, wie viele Zeichen dein Name haben soll.</span></article><article class="step"><b><i>2</i>Selbst in Discord prüfen</b><span>Öffne Discord und kontrolliere dort, ob der Name frei ist.</span></article><article class="step"><b><i>3</i>Als verfügbar melden</b><span>Bestätige es hier. Erst dann sendet die App den Namen an deinen Webhook.</span></article></section>\n<section class="card"><h2>Welche Namen soll ich vorschlagen?</h2><p class="sub">Die Vorschläge werden nur auf deinem Gerät erzeugt. Es gibt keine automatische Discord-Abfrage.</p><div class="controls"><div class="field"><label for="length">Länge in Zeichen</label><input id="length" type="number" min="2" max="32" value="6"><small>Discord erlaubt 2 bis 32 Zeichen.</small></div><div class="field"><label for="count">Anzahl Vorschläge</label><input id="count" type="number" min="1" max="30" value="12"><small>Pro Runde höchstens 30 Ideen.</small></div><div class="field"><label for="style">Zeichen</label><select id="style"><option value="letters">Nur Kleinbuchstaben</option><option value="mixed">Buchstaben und Zahlen</option></select><small>Jeder Vorschlag hält die gewählte Länge ein.</small></div><button class="btn primary" id="generate">Neue Ideen erzeugen</button></div></section>\n<section class="card"><div class="results-head"><h2>Deine Vorschläge</h2><span class="counts" id="countLabel">0 Ideen gespeichert</span></div><div class="list" id="list"><div class="empty"><b>Noch keine Ideen</b>Wähle oben eine Länge und klicke auf „Neue Ideen erzeugen“.</div></div></section>\n<section class="notice"><strong>Nur manuelle Verfügbarkeitsprüfung:</strong> Discord stellt dieser App keinen offiziellen öffentlichen Prüfdienst zur Verfügung. Der Generator erfragt keine Discord-Daten, loggt sich nicht ein und beansprucht keine Namen. Der Webhook wird nur gesendet, wenn du nach deiner eigenen Prüfung ausdrücklich „Ich habe geprüft – verfügbar“ auswählst.</section>\n<section class="card"><h2>Discord-Webhook verbinden</h2><p class="sub">Optional. Die Webhook-Adresse bleibt lokal in einer Datei auf diesem Computer gespeichert. Gib hier nur deinen Discord-Webhook ein – niemals dein Passwort oder einen Bot-Token.</p><div class="settings"><p id="hookHelp">Ohne Webhook kannst du Ideen erzeugen und manuell verwalten.</p><div class="webhook"><input id="webhook" type="password" autocomplete="new-password" placeholder="https://discord.com/api/webhooks/…" aria-label="Discord-Webhook-Adresse"><button class="btn primary" id="saveWebhook">Speichern</button><button class="btn" id="clearWebhook">Entfernen</button></div><span class="webhook-state" id="hookState" aria-live="polite">Webhook wird nicht im Browser gespeichert.</span></div></section>\n<div class="footer">FIELDKIT · Vorschläge sind zufällig und ihre Verfügbarkeit ist nicht garantiert.</div>\n</main><div id="toast" class="toast hidden" role="status" aria-live="polite"></div>\n<script>\n\'use strict\';\nconst $=s=>document.querySelector(s);let ideas=[];let webhookConfigured=false;let toastTimer;\nconst escapeHTML=s=>String(s).replace(/[&<>"\']/g,c=>({\'&\':\'&amp;\',\'<\':\'&lt;\',\'>\':\'&gt;\',\'"\':\'&quot;\',"\'":\'&#39;\'}[c]));\nasync function api(url,options={}){const res=await fetch(url,{headers:{\'Content-Type\':\'application/json\',...(options.headers||{})},...options});let data={};try{data=await res.json()}catch{}if(!res.ok)throw new Error(data.error||`Fehler (${res.status})`);return data}\nfunction toast(message,error=false){const t=$(\'#toast\');t.textContent=message;t.classList.toggle(\'error\',error);t.classList.remove(\'hidden\');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.add(\'hidden\'),4200)}\nfunction render(){const list=$(\'#list\');$(\'#countLabel\').textContent=`${ideas.length} ${ideas.length===1?\'Idee\':\'Ideen\'} gespeichert`;if(!ideas.length){list.innerHTML=\'<div class="empty"><b>Noch keine Ideen</b>Wähle oben eine Länge und klicke auf „Neue Ideen erzeugen“.</div>\';return}list.innerHTML=ideas.map(x=>{const badge=x.status===\'available\'?(x.notified?\'Verfügbar · an Webhook gesendet\':\'Verfügbar · noch nicht gesendet\'):x.status===\'taken\'?\'Manuell als vergeben markiert\':\'Noch nicht geprüft\';const action=x.status===\'available\'?\'An Webhook senden\':\'Ich habe geprüft – verfügbar\';return `<article class="result"><div class="name-wrap"><div class="name">${escapeHTML(x.name)}</div><span class="badge ${x.status}">${badge}</span></div><div class="actions"><button class="btn" data-copy="${escapeHTML(x.id)}">Kopieren</button><a class="btn" href="https://discord.com/settings" target="_blank" rel="noopener">Discord öffnen</a><button class="btn good" data-available="${escapeHTML(x.id)}" ${x.notified?\'disabled\':\'\'}>${action}</button><button class="btn bad" data-taken="${escapeHTML(x.id)}" ${x.status===\'taken\'?\'disabled\':\'\'}>Vergeben</button><button class="btn" data-remove="${escapeHTML(x.id)}" aria-label="Idee ${escapeHTML(x.name)} löschen">Löschen</button></div></article>`}).join(\'\')}\nasync function refresh(){const state=await api(\'/api/state\');ideas=state.ideas||[];webhookConfigured=!!state.webhookConfigured;$(\'#hookHelp\').textContent=webhookConfigured?\'Webhook gespeichert. Die Adresse selbst wird nicht erneut angezeigt.\':\'Ohne Webhook kannst du Ideen erzeugen und manuell verwalten.\';$(\'#hookState\').textContent=webhookConfigured?\'Webhook verbunden (lokal gespeichert).\':\'Webhook wird nicht im Browser gespeichert.\';render()}\n$(\'#generate\').addEventListener(\'click\',async()=>{const length=Number($(\'#length\').value),count=Number($(\'#count\').value);try{const d=await api(\'/api/generate\',{method:\'POST\',body:JSON.stringify({length,count,style:$(\'#style\').value})});ideas=d.ideas;render();toast(`${d.added} neue Namensideen mit genau ${length} Zeichen erzeugt.`);document.querySelector(\'.results-head\').scrollIntoView({behavior:\'smooth\',block:\'start\'})}catch(e){toast(e.message,true)}});\n$(\'#saveWebhook\').addEventListener(\'click\',async()=>{const url=$(\'#webhook\').value.trim();if(!url){toast(\'Füge zuerst deine Discord-Webhook-Adresse ein.\',true);return}try{const d=await api(\'/api/webhook\',{method:\'PUT\',body:JSON.stringify({url})});webhookConfigured=d.configured;$(\'#webhook\').value=\'\';$(\'#hookState\').textContent=\'Webhook verbunden (lokal gespeichert).\';$(\'#hookHelp\').textContent=\'Webhook gespeichert. Die Adresse selbst wird nicht erneut angezeigt.\';toast(\'Webhook sicher lokal gespeichert.\')}catch(e){toast(e.message,true)}});\n$(\'#clearWebhook\').addEventListener(\'click\',async()=>{try{await api(\'/api/webhook\',{method:\'DELETE\'});webhookConfigured=false;$(\'#hookState\').textContent=\'Webhook entfernt.\';$(\'#hookHelp\').textContent=\'Ohne Webhook kannst du Ideen erzeugen und manuell verwalten.\';toast(\'Webhook-Adresse entfernt.\')}catch(e){toast(e.message,true)}});\ndocument.addEventListener(\'click\',async e=>{const copy=e.target.closest(\'[data-copy]\');if(copy){const item=ideas.find(x=>x.id===copy.dataset.copy);if(!item)return;try{await navigator.clipboard.writeText(item.name);toast(`„${item.name}“ kopiert.`)}catch{toast(\'Kopieren wurde vom Browser blockiert.\',true)}return}const remove=e.target.closest(\'[data-remove]\');if(remove){if(!confirm(\'Diese Namensidee wirklich löschen?\'))return;try{const d=await api(\'/api/idea/\'+encodeURIComponent(remove.dataset.remove),{method:\'DELETE\'});ideas=d.ideas;render();toast(\'Idee gelöscht.\')}catch(err){toast(err.message,true)}return}const taken=e.target.closest(\'[data-taken]\');if(taken){try{const d=await api(\'/api/status\',{method:\'POST\',body:JSON.stringify({id:taken.dataset.taken,status:\'taken\'})});ideas=d.ideas;render();toast(\'Als vergeben markiert – keine Webhook-Nachricht gesendet.\')}catch(err){toast(err.message,true)}return}const available=e.target.closest(\'[data-available]\');if(available){const item=ideas.find(x=>x.id===available.dataset.available);if(!item)return;if(!confirm(`Hast du „${item.name}“ selbst in Discord geprüft und als verfügbar bestätigt? Erst danach wird der Name an deinen Webhook gesendet.`))return;try{const d=await api(\'/api/status\',{method:\'POST\',body:JSON.stringify({id:item.id,status:\'available\'})});ideas=d.ideas;render();toast(d.sent?\'Manuell bestätigter Name wurde an deinen Webhook gesendet.\':\'Als verfügbar notiert. Richte einen Webhook ein, wenn du ihn senden möchtest.\')}catch(err){toast(err.message,true)}}});\nif(new URLSearchParams(location.search).has(\'embed\'))document.body.classList.add(\'embedded\');\nrefresh().catch(e=>toast(`Lokale Daten konnten nicht geladen werden: ${e.message}`,true));\n</script></body></html>'
-
-
-# ---------------------------------------------------------------- Discord Name Sniper (offline generation; manual availability only)
-IDEAS_FILE = ROOT / "username_ideas.json"
-IDEAS_LOCK = threading.RLock()
-IDEA_CONSONANTS = "bcdfghjklmnpqrstvwxyz"
-IDEA_VOWELS = "aeiou"
-DISCORD_WEBHOOK_HOSTS = {"discord.com", "discordapp.com"}
-
-
-def valid_idea_name(name):
-    return bool(re.fullmatch(r"[a-z0-9._]{2,32}", str(name)) and
-                not name.startswith(".") and not name.endswith(".") and ".." not in name)
-
-
-def valid_discord_webhook(value):
-    try:
-        parsed = urllib.parse.urlparse(value)
-        return (parsed.scheme == "https" and parsed.hostname in DISCORD_WEBHOOK_HOSTS and
-                not parsed.username and not parsed.password and parsed.port in (None, 443) and
-                bool(re.fullmatch(r"/api/webhooks/[0-9]+/[A-Za-z0-9._-]+/?", parsed.path)))
-    except (ValueError, TypeError):
-        return False
-
-
-def default_ideas_state():
-    return {"ideas": [], "webhook_url": ""}
-
-
-def load_ideas_state():
-    with IDEAS_LOCK:
-        try:
-            data = json.loads(IDEAS_FILE.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or not isinstance(data.get("ideas", []), list):
-                return default_ideas_state()
-            ideas = []
-            for row in data.get("ideas", [])[-200:]:
-                if not isinstance(row, dict):
-                    continue
-                name = str(row.get("name", "")).lower()
-                if not valid_idea_name(name):
-                    continue
-                status = row.get("status") if row.get("status") in {"new", "available", "taken"} else "new"
-                ideas.append({"id": str(row.get("id", secrets.token_hex(5)))[:32], "name": name,
-                              "status": status, "notified": bool(row.get("notified", False))})
-            webhook = data.get("webhook_url", "")
-            if not isinstance(webhook, str) or not valid_discord_webhook(webhook):
-                webhook = ""
-            return {"ideas": ideas, "webhook_url": webhook}
-        except (OSError, ValueError, TypeError):
-            return default_ideas_state()
-
-
-def save_ideas_state(state):
-    with IDEAS_LOCK:
-        fd, temp = tempfile.mkstemp(prefix=".username-ideas-", suffix=".tmp", dir=ROOT)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as file:
-                file.write(json.dumps(state, ensure_ascii=False, indent=2))
-                file.flush()
-                os.fsync(file.fileno())
-            try:
-                os.chmod(temp, 0o600)
-            except OSError:
-                pass
-            os.replace(temp, IDEAS_FILE)
-        finally:
-            if os.path.exists(temp):
-                os.unlink(temp)
-
-
-def make_idea_name(length, numbers=False):
-    result, vowel = [], bool(secrets.randbelow(2))
-    for _ in range(length):
-        result.append(secrets.choice(IDEA_VOWELS if vowel else IDEA_CONSONANTS))
-        vowel = not vowel
-    if numbers and length >= 3 and secrets.randbelow(2):
-        digits = 1 if length < 8 or secrets.randbelow(2) else 2
-        start = max(1, length - digits)
-        result[start:] = [secrets.choice("0123456789") for _ in range(length - start)]
-    return "".join(result)
-
-
-def post_name_webhook(url, name):
-    if not valid_discord_webhook(url):
-        raise ValueError("Speichere zuerst eine gültige Discord-Webhook-Adresse.")
-    payload = json.dumps({"content": f"Manuell als verfügbar bestätigte Discord-Namensidee: `{name}`"}).encode("utf-8")
-    request = urllib.request.Request(url, data=payload, method="POST", headers={
-        "Content-Type": "application/json", "User-Agent": "FIELDKIT-NameSniper/1.0"})
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            return None
-    opener = urllib.request.build_opener(NoRedirect)
-    try:
-        with opener.open(request, timeout=8) as response:
-            if response.status not in (200, 204):
-                raise ValueError(f"Discord-WebHook lehnte die Nachricht ab (HTTP {response.status}).")
-    except urllib.error.HTTPError as exc:
-        raise ValueError(f"Discord-Webhook meldete HTTP {exc.code}.") from None
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise ValueError("Webhook nicht erreichbar. Prüfe die Adresse und Verbindung.") from None
-
-
-def read_request_json(handler):
-    try:
-        size = int(handler.headers.get("Content-Length", "0"))
-    except ValueError:
-        raise ValueError("Ungültige Anfragegröße.")
-    if size < 2 or size > 65536:
-        raise ValueError("Die Anfrage ist leer oder zu groß.")
-    try:
-        return json.loads(handler.rfile.read(size).decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise ValueError("Ungültiges JSON.")
-
+HUB_HTML = '<!doctype html>\n<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f8ff"><title>FIELDKIT — Lookup Desk</title>\n<style>\n:root{color-scheme:light;--ink:#202b40;--muted:#647189;--line:#dce4f0;--paper:#fff;--bg:#f4f7fc;--blue:#586dea;--blue2:#4055d2;--shadow:0 18px 54px rgba(38,55,92,.09)}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 8% -4%,#dce8ff 0,transparent 34%),radial-gradient(ellipse at 95% 4%,#f6e0f0 0,transparent 28%),var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}.wrap{width:min(1180px,calc(100% - 36px));margin:auto;padding:24px 0 44px}.top{display:flex;align-items:center;gap:11px;padding:0 0 18px;border-bottom:1px solid var(--line)}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(140deg,#5e76f4,#8f9dff);color:#fff;display:grid;place-items:center;font-size:19px;font-weight:850;box-shadow:0 9px 22px #6176ee40}.brand{font-weight:800;letter-spacing:.08em}.brand small{display:block;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.12em}.local{margin-left:auto;color:#4e7b62;font-size:12px}.hero{padding:34px 0 20px}.eyebrow{color:#5267c6;font-size:11px;font-weight:800;letter-spacing:.16em}.hero h1{margin:7px 0 8px;font-size:clamp(32px,5vw,48px);line-height:1.1;letter-spacing:-.05em}.hero p{max-width:770px;margin:0;color:var(--muted);font-size:16px}.hero b{color:#293858}.controls{display:flex;gap:10px;margin:22px 0 18px;flex-wrap:wrap}.search{height:46px;flex:1;min-width:220px;display:flex;align-items:center;gap:8px;padding:0 14px;border:1px solid #ccd7e7;border-radius:12px;background:rgba(255,255,255,.88);box-shadow:0 4px 14px #33446608}.search input{border:0;outline:0;background:transparent;color:var(--ink);width:100%;font:inherit}.search:focus-within{border-color:#8190ed;box-shadow:0 0 0 4px #586dea18}.filters{display:flex;gap:6px;flex-wrap:wrap}.filter{height:42px;padding:0 13px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#58647a;font-size:13px;font-weight:650}.filter.active{background:#e9edff;border-color:#d3dbff;color:#4358d0}.section-title{display:flex;align-items:end;justify-content:space-between;margin:24px 1px 12px}.section-title h2{margin:0;font-size:20px}.section-title span{color:var(--muted);font-size:12px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:12px}.tool{min-height:157px;display:flex;flex-direction:column;padding:16px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.9);box-shadow:0 5px 20px rgba(48,62,90,.04);cursor:pointer;text-align:left;transition:transform .15s,box-shadow .15s,border .15s;color:inherit}.tool:hover{transform:translateY(-3px);border-color:#c2cfff;box-shadow:0 12px 30px rgba(43,63,115,.1)}.tool-head{display:flex;align-items:center;gap:11px}.tool-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;background:#edf1ff;color:#5064d2;font-size:18px;font-weight:800}.tool h3{margin:0;font-size:14px}.tool p{margin:10px 0 12px;color:var(--muted);font-size:12px;line-height:1.5}.tag{margin-top:auto;align-self:flex-start;padding:3px 8px;border-radius:99px;background:#f1f4f9;color:#66738b;font-size:10px;font-weight:700}.tool.featured{border-color:#cdd7ff;background:linear-gradient(140deg,#fff,#f1f4ff)}.tool.featured .tool-icon{background:#566dea;color:white}.notice{margin:18px 0 0;padding:12px 15px;border:1px solid #e1e7f0;border-radius:12px;background:#ffffffb8;color:#59677c;font-size:12px}.empty{grid-column:1/-1;padding:38px;text-align:center;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:14px}.modal{position:fixed;inset:0;z-index:10;display:none;place-items:center;padding:16px;background:#18243e66;backdrop-filter:blur(5px)}.modal.open{display:grid}.dialog{width:min(560px,100%);max-height:min(85vh,720px);overflow:auto;padding:21px;border:1px solid #d8e0ed;border-radius:18px;background:white;box-shadow:0 22px 70px #17213f33}.dialog-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.dialog h2{margin:0;font-size:22px}.dialog p{margin:6px 0 14px;color:var(--muted);font-size:13px}.close{width:34px;height:34px;border:0;border-radius:10px;background:#f1f4f9;color:#58657b;font-size:20px}.dialog label{display:block;margin:11px 0 5px;font-size:12px;font-weight:750}.dialog input,.dialog textarea,.dialog select{width:100%;padding:11px 12px;border:1px solid #cdd7e5;border-radius:10px;background:white;color:var(--ink);font:14px system-ui}.dialog textarea{min-height:130px;resize:vertical}.dialog-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.btn{height:42px;padding:0 15px;border:1px solid #d0dae8;border-radius:10px;background:white;color:var(--ink);font-weight:700}.btn.primary{background:var(--blue);border-color:var(--blue);color:white}.btn:hover{filter:brightness(.97)}.output{margin-top:10px;padding:12px;border-radius:10px;background:#f2f5fb;white-space:pre-wrap;word-break:break-word;font:13px/1.5 ui-monospace,Consolas,monospace;max-height:240px;overflow:auto}.hidden{display:none!important}.foot{padding-top:20px;color:#8390a3;font-size:11px;text-align:center}\n@media(max-width:640px){.wrap{width:calc(100% - 22px);padding-top:14px}.grid{grid-template-columns:1fr}.tool{min-height:132px}.hero{padding-top:24px}.controls{display:block}.filters{margin-top:8px}.local{font-size:10px}.section-title span{display:none}}\n</style></head><body><main class="wrap">\n<header class="top"><div class="logo">F</div><div class="brand">FIELDKIT<small>LOOKUP DESK</small></div><span class="local">● Läuft lokal auf deinem Computer</span></header>\n<section class="hero"><div class="eyebrow">DEIN STARTPUNKT</div><h1>Was möchtest du nachschlagen?</h1><p>Wähle den <b>Roblox Avatar Finder</b> oder eines der 20 Lookup-Tools. Öffentliche Informationen nachschlagen, Domains prüfen oder kleine Daten-Helfer nutzen — direkt von dieser Startseite.</p></section>\n<div class="controls"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Tool suchen, z. B. DNS, IP, GitHub…" autocomplete="off"></label><div class="filters" id="filters"></div></div>\n<div class="section-title"><h2 id="gridTitle">Alle Tools</h2><span id="toolCount"></span></div><section class="grid" id="grid" aria-live="polite"></section>\n<p class="notice"><b>Datenschutz:</b> Die externen Lookup-Dienste öffnen sich in einem neuen Tab und können die Suchanfrage erhalten. Gib dort keine Passwörter, privaten Tokens oder fremden sensiblen Daten ein. Prüfe nur Systeme, die du selbst besitzt oder untersuchen darfst. JSON- und Base64-Helfer laufen lokal im Browser.</p>\n<div class="foot">FIELDKIT · Python-Standardbibliothek · Keine Konten oder API-Schlüssel für die lokalen Helfer nötig</div>\n</main><div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><section class="dialog"><div class="dialog-top"><div><h2 id="dialogTitle"></h2><p id="dialogDesc"></p></div><button class="close" id="close" aria-label="Schließen">×</button></div><div id="formArea"></div><div class="dialog-actions" id="actions"></div><pre class="output hidden" id="output"></pre></section></div>\n<script>\n\'use strict\';\nconst tools=[\n{id:\'avatar\',title:\'Roblox Avatar Finder\',desc:\'Spielerprofil, Avatar, Outfits und öffentliche Profilinfos durchsuchen.\',category:\'Profil\',icon:\'◉\',kind:\'internal\'},\n{id:\'rdap\',title:\'Domain-Registrierung (RDAP)\',desc:\'Öffentliche Domain-Registrierungsdaten über ICANN Lookup ansehen.\',category:\'Domain\',icon:\'⌂\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://lookup.icann.org/en/lookup?name=${encodeURIComponent(q)}`},\n{id:\'ip\',title:\'IP- / ASN-Lookup\',desc:\'Öffentliche Netzwerk- und ASN-Informationen zu einer IP ansehen.\',category:\'Netzwerk\',icon:\'◎\',kind:\'external\',hint:\'IP-Adresse eingeben, z. B. 8.8.8.8\',build:q=>`https://ipinfo.io/${encodeURIComponent(q)}`},\n{id:\'dns-a\',title:\'DNS A / AAAA\',desc:\'IPv4- und IPv6-DNS-Antworten über Google Public DNS nachsehen.\',category:\'Netzwerk\',icon:\'⌘\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://dns.google/resolve?name=${encodeURIComponent(q)}&type=A`},\n{id:\'dns-mx\',title:\'Mailserver (MX)\',desc:\'Öffentliche MX-Einträge einer Domain abfragen.\',category:\'Netzwerk\',icon:\'✉\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://dns.google/resolve?name=${encodeURIComponent(q)}&type=MX`},\n{id:\'spf\',title:\'SPF / TXT-Einträge\',desc:\'TXT-Einträge einer Domain ansehen, darunter oft SPF-Richtlinien.\',category:\'Netzwerk\',icon:\'TXT\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://dns.google/resolve?name=${encodeURIComponent(q)}&type=TXT`},\n{id:\'dmarc\',title:\'DMARC-Eintrag\',desc:\'Den öffentlichen _dmarc-TXT-Eintrag einer Domain nachschlagen.\',category:\'Netzwerk\',icon:\'D\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://dns.google/resolve?name=${encodeURIComponent(\'_dmarc.\'+q)}&type=TXT`},\n{id:\'ct\',title:\'Zertifikat-Transparenz\',desc:\'Öffentliche TLS-Zertifikate und zugehörige Subdomains in CT-Logs suchen.\',category:\'Domain\',icon:\'▤\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>{const u=new URL(\'https://crt.sh/\');u.searchParams.set(\'q\',\'%.\'+q);return u.href}},\n{id:\'ssl\',title:\'TLS / SSL-Bericht\',desc:\'TLS-Konfiguration eines öffentlichen Webservers mit SSL Labs ansehen.\',category:\'Domain\',icon:\'🔒\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://www.ssllabs.com/ssltest/analyze.html?d=${encodeURIComponent(q)}`},\n{id:\'headers\',title:\'HTTP-Sicherheitsheader\',desc:\'Sicherheitsheader einer öffentlichen Website prüfen.\',category:\'Domain\',icon:\'⇵\',kind:\'external\',hint:\'Vollständige Adresse, z. B. https://example.com\',build:q=>`https://securityheaders.com/?q=${encodeURIComponent(q)}&followRedirects=on`},\n{id:\'urlscan\',title:\'URLScan-Suche\',desc:\'Öffentliche URL-Scan-Ergebnisse und Domains bei urlscan.io suchen.\',category:\'Sicherheit\',icon:\'⌕\',kind:\'external\',hint:\'Domain oder URL eingeben\',build:q=>`https://urlscan.io/search/#${encodeURIComponent(q)}`},\n{id:\'urlhaus\',title:\'URLhaus-Suche\',desc:\'Öffentliche Malware-URL-Datenbank nach Domain oder URL durchsuchen.\',category:\'Sicherheit\',icon:\'⚑\',kind:\'external\',hint:\'Domain oder URL eingeben\',build:q=>`https://urlhaus.abuse.ch/browse.php?search=${encodeURIComponent(q)}`},\n{id:\'vt\',title:\'VirusTotal Domain-Bericht\',desc:\'Einen vorhandenen öffentlichen Domain-Bericht bei VirusTotal öffnen.\',category:\'Sicherheit\',icon:\'◈\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://www.virustotal.com/gui/domain/${encodeURIComponent(q)}`},\n{id:\'dnscheck\',title:\'DNS-Verteilung weltweit\',desc:\'DNS-Antworten aus verschiedenen Regionen vergleichen.\',category:\'Netzwerk\',icon:\'◌\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://dnschecker.org/all-dns-records-of-domain.php?query=${encodeURIComponent(q)}&rtype=A`},\n{id:\'tech\',title:\'Website-Technologien\',desc:\'Öffentliche Technologien erkennen, die eine Website verwendet.\',category:\'Domain\',icon:\'⚙\',kind:\'external\',hint:\'Domain eingeben, z. B. example.com\',build:q=>`https://www.wappalyzer.com/lookup/${encodeURIComponent(q)}/`},\n{id:\'archive\',title:\'Wayback Machine\',desc:\'Archivierte Snapshots einer öffentlichen Website durchsuchen.\',category:\'Domain\',icon:\'◷\',kind:\'external\',hint:\'Domain oder URL eingeben\',build:q=>`https://web.archive.org/web/*/${encodeURIComponent(q)}`},\n{id:\'gh-user\',title:\'GitHub-Profil\',desc:\'Ein öffentliches GitHub-Profil direkt öffnen.\',category:\'Code\',icon:\'⌘\',kind:\'external\',hint:\'GitHub-Benutzername eingeben\',build:q=>{if(!/^[A-Za-z0-9-]{1,39}$/.test(q))throw Error(\'Bitte einen gültigen GitHub-Benutzernamen eingeben.\');return `https://github.com/${q}`}},\n{id:\'gh-search\',title:\'GitHub-Reposuche\',desc:\'Öffentliche GitHub-Repositories nach Begriffen durchsuchen.\',category:\'Code\',icon:\'⌗\',kind:\'external\',hint:\'Suchbegriff eingeben\',build:q=>`https://github.com/search?q=${encodeURIComponent(q)}&type=repositories`},\n{id:\'user-search\',title:\'Öffentliche Username-Suche\',desc:\'Einen Handle als Suchbegriff im öffentlichen Web suchen.\',category:\'Websuche\',icon:\'@\',kind:\'external\',hint:\'Öffentlichen Benutzernamen eingeben\',build:q=>`https://www.google.com/search?q=${encodeURIComponent(\'"\'+q+\'" username\')}`},\n{id:\'json\',title:\'JSON formatieren\',desc:\'JSON lokal im Browser lesbar formatieren und auf Fehler prüfen.\',category:\'Lokal\',icon:\'{}\',kind:\'json\'},\n{id:\'base64\',title:\'Base64 kodieren / dekodieren\',desc:\'Text lokal im Browser in Base64 umwandeln oder zurückdekodieren.\',category:\'Lokal\',icon:\'64\',kind:\'base64\'}\n];\nconst cats=[\'Alle\',\'Profil\',\'Domain\',\'Netzwerk\',\'Sicherheit\',\'Code\',\'Websuche\',\'Lokal\'];let active=\'Alle\',chosen=null;\nconst esc=s=>String(s).replace(/[&<>"\']/g,c=>({\'&\':\'&amp;\',\'<\':\'&lt;\',\'>\':\'&gt;\',\'"\':\'&quot;\',"\'":\'&#39;\'}[c]));\n$(\'#filters\').innerHTML=cats.map(c=>`<button class="filter${c===\'Alle\'?\' active\':\'\'}" data-filter="${c}">${c}</button>`).join(\'\');\nfunction render(){const q=$(\'#search\').value.trim().toLowerCase();let list=tools.filter(t=>(active===\'Alle\'||t.category===active)&&(!q||`${t.title} ${t.desc} ${t.category}`.toLowerCase().includes(q)));$(\'#toolCount\').textContent=`${list.length} Tool${list.length===1?\'\':\'s\'} · ${tools.length-1} Lookup-Tools + Avatar Finder` ;$(\'#gridTitle\').textContent=active===\'Alle\'?\'Alle Tools\':active;$(\'#grid\').innerHTML=list.length?list.map((t,i)=>`<button class="tool${t.kind===\'internal\'?\' featured\':\'\'}" data-tool="${t.id}"><span class="tool-head"><span class="tool-icon">${t.icon}</span><h3>${t.title}</h3></span><p>${t.desc}</p><span class="tag">${t.kind===\'internal\'?\'FIELDKIT\':t.kind===\'external\'?\'Öffentlicher Lookup\':\'Lokal im Browser\'}</span></button>`).join(\'\'):\'<div class="empty">Kein passendes Tool gefunden. Ändere den Suchbegriff oder wähle „Alle“.</div>\'}\n$(\'#filters\').addEventListener(\'click\',e=>{const b=e.target.closest(\'[data-filter]\');if(!b)return;active=b.dataset.filter;document.querySelectorAll(\'.filter\').forEach(x=>x.classList.toggle(\'active\',x===b));render()});$(\'#search\').addEventListener(\'input\',render);\nfunction openTool(id){const t=tools.find(x=>x.id===id);if(!t)return;if(t.kind===\'internal\'){location.href=\'/avatar\';return}chosen=t;$(\'#dialogTitle\').textContent=t.title;$(\'#dialogDesc\').textContent=t.desc;$(\'#output\').classList.add(\'hidden\');$(\'#output\').textContent=\'\';const area=$(\'#formArea\'),actions=$(\'#actions\');actions.innerHTML=\'\';if(t.kind===\'external\'){area.innerHTML=`<label for="target">${t.hint}</label><input id="target" autocomplete="off" placeholder="Wert eingeben …"><p>Das öffnet einen externen Dienst in einem neuen Tab. Prüfe die Adresse und teile keine privaten Informationen.</p>`;actions.innerHTML=\'<button class="btn" id="cancel">Abbrechen</button><button class="btn primary" id="run">Lookup öffnen ↗</button>\';setTimeout(()=>$(\'#target\').focus(),30)}else if(t.kind===\'json\'){area.innerHTML=\'<label for="localText">JSON einfügen (bleibt in diesem Browser)</label><textarea id="localText" placeholder="{\\n  &quot;beispiel&quot;: true\\n}"></textarea>\';actions.innerHTML=\'<button class="btn" id="cancel">Schließen</button><button class="btn primary" id="run">Formatieren</button>\'}else{area.innerHTML=\'<label for="localText">Text eingeben (bleibt in diesem Browser)</label><textarea id="localText" placeholder="Text eingeben …"></textarea><label for="b64Mode">Aktion</label><select id="b64Mode"><option value="encode">Text → Base64</option><option value="decode">Base64 → Text</option></select>\';actions.innerHTML=\'<button class="btn" id="cancel">Schließen</button><button class="btn primary" id="run">Umwandeln</button>\'}$(\'#modal\').classList.add(\'open\')}\ndocument.addEventListener(\'click\',e=>{const card=e.target.closest(\'[data-tool]\');if(card)openTool(card.dataset.tool);if(e.target.id===\'cancel\'||e.target.id===\'close\'||e.target===$(\'#modal\'))$(\'#modal\').classList.remove(\'open\');if(e.target.id===\'run\'&&chosen){try{if(chosen.kind===\'external\'){const q=$(\'#target\').value.trim();if(!q)throw Error(\'Bitte einen Suchwert eingeben.\');if((chosen.id===\'headers\')&&!/^https?:\\/\\//i.test(q))throw Error(\'Bitte eine vollständige URL mit http:// oder https:// eingeben.\');const url=chosen.build(q);window.open(url,\'_blank\',\'noopener,noreferrer\');$(\'#modal\').classList.remove(\'open\')}else if(chosen.kind===\'json\'){const value=JSON.parse($(\'#localText\').value);$(\'#output\').textContent=JSON.stringify(value,null,2);$(\'#output\').classList.remove(\'hidden\')}else{const value=$(\'#localText\').value;if($(\'#b64Mode\').value===\'encode\')$(\'#output\').textContent=btoa(unescape(encodeURIComponent(value)));else $(\'#output\').textContent=decodeURIComponent(escape(atob(value.trim())));$(\'#output\').classList.remove(\'hidden\')}}catch(err){alert(err.message)}}});\n$(\'#close\').onclick=()=>$(\'#modal\').classList.remove(\'open\');addEventListener(\'keydown\',e=>{if(e.key===\'Escape\')$(\'#modal\').classList.remove(\'open\')});render();\n</script></body></html>'
 
 # ---------------------------------------------------------------- Server
 class H(BaseHTTPRequestHandler):
@@ -581,16 +352,11 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         try:
             path = urllib.parse.urlparse(p).path
-            if path in ("/sniper", "/discord"):
-                return self.out(200, NAME_HTML.encode("utf-8"), "text/html; charset=utf-8")
-            if path == "/api/state":
-                state = load_ideas_state()
-                return self.jout({"ideas": state["ideas"], "webhookConfigured": bool(state["webhook_url"])})
-            if path == "/api/watchlist":
-                return self.jout(load_watchlist())
             if path == "/health":
-                return self.jout({"ok": True, "app": "FIELDKIT", "tools": ["avatar-finder", "discord-name-sniper"]})
+                return self.jout({"ok": True, "app": "FIELDKIT", "tools": ["avatar-finder", "20-public-lookups"]})
             if p in ("/", "/index.html", "/test.html") or p.startswith("/?"):
+                return self.out(200, HUB_HTML.encode("utf-8"), "text/html; charset=utf-8")
+            if path == "/avatar":
                 return self.out(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             if p == "/favicon.ico":
                 return self.out(204, b"")
@@ -662,56 +428,7 @@ class H(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n) if n else b""
-            route = urllib.parse.urlparse(self.path).path
-            if route in ("/api/generate", "/api/status"):
-                try:
-                    if len(raw) < 2 or len(raw) > 65536:
-                        raise ValueError("Die Anfrage ist leer oder zu groß.")
-                    try:
-                        data = json.loads(raw.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        raise ValueError("Ungültiges JSON.")
-                    if not isinstance(data, dict):
-                        raise ValueError("Ungültige Anfrage.")
-                    with IDEAS_LOCK:
-                        state = load_ideas_state()
-                        if route == "/api/generate":
-                            length, count, style = data.get("length"), data.get("count"), data.get("style")
-                            if isinstance(length, bool) or not isinstance(length, int) or not 2 <= length <= 32:
-                                raise ValueError("Wähle eine Länge von 2 bis 32 Zeichen.")
-                            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 30:
-                                raise ValueError("Wähle 1 bis 30 Vorschläge.")
-                            if style not in ("letters", "mixed"):
-                                raise ValueError("Wähle eine gültige Zeichenart.")
-                            known = {x["name"] for x in state["ideas"]}
-                            batch, attempts = [], 0
-                            while len(batch) < count and attempts < count * 30:
-                                attempts += 1
-                                name = make_idea_name(length, style == "mixed")
-                                if name in known:
-                                    continue
-                                known.add(name)
-                                batch.append({"id": secrets.token_hex(6), "name": name, "status": "new", "notified": False})
-                            state["ideas"] = (batch + state["ideas"])[:200]
-                            save_ideas_state(state)
-                            return self.jout({"ideas": state["ideas"], "added": len(batch)})
-                        idea_id, status = data.get("id"), data.get("status")
-                        if not isinstance(idea_id, str) or status not in ("available", "taken"):
-                            raise ValueError("Ungültiger Status oder Name.")
-                        idea = next((x for x in state["ideas"] if x["id"] == idea_id), None)
-                        if idea is None:
-                            return self.jout({"error": "Namensidee nicht gefunden."}, 404)
-                        idea["status"] = status
-                        sent = False
-                        if status == "available" and not idea["notified"] and state["webhook_url"]:
-                            post_name_webhook(state["webhook_url"], idea["name"])
-                            idea["notified"] = True
-                            sent = True
-                        save_ideas_state(state)
-                    return self.jout({"ideas": state["ideas"], "sent": sent})
-                except ValueError as exc:
-                    return self.jout({"error": str(exc)}, 400)
-            if route == "/x/recent":
+            if self.path == "/x/recent":
                 try:
                     d = json.loads(raw.decode("utf-8") or "{}")
                 except Exception:
@@ -723,64 +440,15 @@ class H(BaseHTTPRequestHandler):
                 else:
                     recent_save(d)
                 return self.jout({"ok": True})
-            self.jout({"error": "nicht gefunden"}, 404)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            pass
-        except Exception as e:
-            print("Fehler:", e)
-
-
-    def do_PUT(self):
-        try:
-            if urllib.parse.urlparse(self.path).path == "/api/webhook":
-                data = read_request_json(self)
-                url = data.get("url", "") if isinstance(data, dict) else ""
-                if not isinstance(url, str) or not valid_discord_webhook(url):
-                    return self.jout({"error": "Gib eine gültige Discord-Webhook-URL ein."}, 400)
-                with IDEAS_LOCK:
-                    state = load_ideas_state()
-                    state["webhook_url"] = url
-                    save_ideas_state(state)
-                return self.jout({"configured": True})
-            if urllib.parse.urlparse(self.path).path != "/api/watchlist":
-                return self.jout({"error": "nicht gefunden"}, 404)
-            n = int(self.headers.get("Content-Length") or 0)
-            if n < 2 or n > MAX_BODY:
-                return self.jout({"error": "Request body is empty or larger than 2 MB."}, 413)
-            try:
-                data = json.loads(self.rfile.read(n).decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                return self.jout({"error": str(exc)[:240]}, 400)
-            try:
-                return self.jout(save_watchlist(data))
-            except ValueError as exc:
-                return self.jout({"error": str(exc)[:240]}, 400)
+            return self.jout({"error": "nicht gefunden"}, 404)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except Exception as exc:
-            print("Watchlist-Fehler:", exc)
+            print("Fehler:", exc)
             try:
                 self.jout({"error": "serverfehler"}, 500)
             except Exception:
                 pass
-
-
-    def do_DELETE(self):
-        path = urllib.parse.urlparse(self.path).path
-        if path == "/api/webhook":
-            with IDEAS_LOCK:
-                state = load_ideas_state()
-                state["webhook_url"] = ""
-                save_ideas_state(state)
-            return self.jout({"configured": False})
-        if path.startswith("/api/idea/"):
-            idea_id = urllib.parse.unquote(path.removeprefix("/api/idea/"))
-            with IDEAS_LOCK:
-                state = load_ideas_state()
-                state["ideas"] = [x for x in state["ideas"] if x["id"] != idea_id]
-                save_ideas_state(state)
-            return self.jout({"ideas": state["ideas"]})
-        return self.jout({"error": "nicht gefunden"}, 404)
 
 
 class Srv(ThreadingMixIn, HTTPServer):
@@ -1357,9 +1025,7 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
 .state{animation:app-enter .38s var(--ease-out) both}
 @media(max-width:760px){#content.scroll-next .tab.show,#content.scroll-prev .tab.show{animation-duration:.36s}}
 @media(prefers-reduced-motion:reduce){#content{scroll-behavior:auto}#content.scroll-next .tab.show,#content.scroll-prev .tab.show,.tab.show>.state,.tab.show>pre.raw,.tab.show>.grid,.tab.show>.pills,.palette-block,.ni,.navshortcuts button{animation:none!important}}
-.collection-tools{display:flex;align-items:center;gap:9px;margin:0 0 14px;flex-wrap:wrap}.collection-search{height:36px;min-width:min(240px,100%);flex:1;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--sub)}.collection-search input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--txt);font:inherit;font-size:12px}.collection-tools select{height:36px;max-width:190px;padding:0 10px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);font:inherit;font-size:11px}.collection-tools select option{color:#222}.tool-btn{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);cursor:pointer}.export-csv{height:36px;padding:0 11px;font-size:11px}.collection-grid.list-layout{grid-template-columns:1fr!important;gap:8px}.collection-grid.list-layout .card{display:flex;align-items:center;min-height:82px}.collection-grid.list-layout .th,.collection-grid.list-layout .gi{width:78px;height:78px;min-width:78px;flex:none;border-radius:12px}.collection-grid.list-layout .cb,.collection-grid.list-layout .gb{flex:1;min-width:0}.collection-grid.list-layout .rowcard .gb{padding:10px 14px}.filter-empty{padding:20px;text-align:center;color:var(--sub);font-size:13px}.rchip{padding:0;gap:0}.rchip-open{min-width:0;display:flex;align-items:center;gap:9px;padding:5px 8px 5px 5px;border:0;background:transparent;color:var(--txt);cursor:pointer;text-align:left}.rchip-open span:not(.ph2){min-width:0}.rchip-open b{font-size:12px}.recent-remove{width:27px;height:27px;margin:0 5px 0 2px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--sub);cursor:pointer}.recent-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.profile-tool-row{display:flex;justify-content:center;gap:5px}.profile-tool-row .tool-btn{width:29px;height:29px;border-radius:9px}.profile-actions .favorite-toggle{border:1px solid rgba(255,255,255,.26);background:rgba(255,255,255,.12);color:#fff}.profile-actions .favorite-toggle.saved{background:rgba(255,196,65,.2);border-color:rgba(255,205,91,.45);color:#ffe08b}.favorites-empty{min-height:250px;padding:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.favorite-empty-icon{width:56px;height:56px;display:grid;place-items:center;border-radius:18px;background:rgba(255,190,65,.15);color:#ffbd4a}.favorites-empty h2{margin:14px 0 5px;font-size:20px}.favorites-empty p{max-width:360px;margin-bottom:16px;color:var(--sub);font-size:12px}.favorites-head{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px}.favorites-head h2{font-size:20px}.favorites-head h2 span{color:var(--sub);font-size:14px}.favorites-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}.favorite-card{min-height:84px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer}.favorite-avatar{width:50px;height:50px;flex:none;overflow:hidden;border-radius:15px;background:var(--glass2)}.favorite-avatar img{width:100%;height:100%;object-fit:cover}.favorite-copy{min-width:0;flex:1;display:flex;flex-direction:column}.favorite-copy b,.favorite-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.favorite-copy b{font-size:13px}.favorite-copy span{color:var(--sub);font-size:10px}.favorite-remove{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--sub);cursor:pointer}.favorite-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}.discord-embed-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;padding:12px 15px;border:1px solid rgba(99,112,220,.2);border-radius:12px;background:linear-gradient(110deg,rgba(84,97,178,.14),rgba(255,255,255,.035))}.discord-embed-head b{display:block;color:var(--txt);font-size:12px;letter-spacing:.08em}.discord-embed-head span{display:block;margin-top:4px;color:var(--sub);font-size:11px}.discord-embed-head .btn{flex:none;height:30px;font-size:10px}#nameSniperFrame{display:block;width:100%;height:calc(100vh - 175px);min-height:680px;border:1px solid rgba(99,112,220,.2);border-radius:13px;background:#f5f8ff;box-shadow:0 14px 34px rgba(0,0,0,.08)}
-@media(max-width:520px){.discord-embed-head{padding:10px;align-items:flex-start}.discord-embed-head .btn{font-size:9px;padding-inline:8px}#nameSniperFrame{height:calc(100vh - 155px);min-height:720px}}
-</style>
+.collection-tools{display:flex;align-items:center;gap:9px;margin:0 0 14px;flex-wrap:wrap}.collection-search{height:36px;min-width:min(240px,100%);flex:1;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--sub)}.collection-search input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--txt);font:inherit;font-size:12px}.collection-tools select{height:36px;max-width:190px;padding:0 10px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);font:inherit;font-size:11px}.collection-tools select option{color:#222}.tool-btn{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);cursor:pointer}.export-csv{height:36px;padding:0 11px;font-size:11px}.collection-grid.list-layout{grid-template-columns:1fr!important;gap:8px}.collection-grid.list-layout .card{display:flex;align-items:center;min-height:82px}.collection-grid.list-layout .th,.collection-grid.list-layout .gi{width:78px;height:78px;min-width:78px;flex:none;border-radius:12px}.collection-grid.list-layout .cb,.collection-grid.list-layout .gb{flex:1;min-width:0}.collection-grid.list-layout .rowcard .gb{padding:10px 14px}.filter-empty{padding:20px;text-align:center;color:var(--sub);font-size:13px}.rchip{padding:0;gap:0}.rchip-open{min-width:0;display:flex;align-items:center;gap:9px;padding:5px 8px 5px 5px;border:0;background:transparent;color:var(--txt);cursor:pointer;text-align:left}.rchip-open span:not(.ph2){min-width:0}.rchip-open b{font-size:12px}.recent-remove{width:27px;height:27px;margin:0 5px 0 2px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--sub);cursor:pointer}.recent-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.profile-tool-row{display:flex;justify-content:center;gap:5px}.profile-tool-row .tool-btn{width:29px;height:29px;border-radius:9px}.profile-actions .favorite-toggle{border:1px solid rgba(255,255,255,.26);background:rgba(255,255,255,.12);color:#fff}.profile-actions .favorite-toggle.saved{background:rgba(255,196,65,.2);border-color:rgba(255,205,91,.45);color:#ffe08b}.favorites-empty{min-height:250px;padding:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.favorite-empty-icon{width:56px;height:56px;display:grid;place-items:center;border-radius:18px;background:rgba(255,190,65,.15);color:#ffbd4a}.favorites-empty h2{margin:14px 0 5px;font-size:20px}.favorites-empty p{max-width:360px;margin-bottom:16px;color:var(--sub);font-size:12px}.favorites-head{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px}.favorites-head h2{font-size:20px}.favorites-head h2 span{color:var(--sub);font-size:14px}.favorites-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}.favorite-card{min-height:84px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer}.favorite-avatar{width:50px;height:50px;flex:none;overflow:hidden;border-radius:15px;background:var(--glass2)}.favorite-avatar img{width:100%;height:100%;object-fit:cover}.favorite-copy{min-width:0;flex:1;display:flex;flex-direction:column}.favorite-copy b,.favorite-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.favorite-copy b{font-size:13px}.favorite-copy span{color:var(--sub);font-size:10px}.favorite-remove{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--sub);cursor:pointer}.favorite-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}</style>
 </head>
 <body>
 <div class="wall"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
@@ -1407,7 +1073,6 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
     <div class="grid w" id="feat"></div>
    </section>
    <section class="tab" id="t-profil"></section>
-   <section class="tab" id="t-discord"><div class="discord-embed-head"><div><b>DISCORD NAME SNIPER</b><span>Erzeuge Namensideen, prüfe sie selbst in Discord und sende bestätigte Namen an deinen Webhook.</span></div></div><iframe id="nameSniperFrame" src="/sniper?embed=1" title="Discord Name Sniper"></iframe></section>
    <section class="tab" id="t-favorites"></section>
    <section class="tab" id="t-items"></section>
    <section class="tab" id="t-outfits"></section>
@@ -1457,7 +1122,6 @@ const ic=(n,s=20)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="no
 const TABS=[
  {id:'start',label:'Startseite',icon:'home',color:'#308cff',desc:''},
  {id:'profil',label:'Profil',icon:'user',color:'#b55bfa',desc:'Hier siehst du Bild, Status, Freunde und weitere öffentliche Profilinfos.'},
- {id:'discord',label:'Name Sniper',icon:'at',color:'#626ff3',desc:'Erzeuge Discord-Namensideen in deiner Wunschlänge und sende selbst bestätigte verfügbare Namen an deinen Webhook.'},
  {id:'favorites',label:'Favoriten',icon:'star',color:'#ff4d78',badge:'cFavorites',desc:''},
  {id:'outfits',label:'Outfits',icon:'layers',color:'#ff4d78',badge:'cOutfits',desc:'Gespeicherte Outfits ansehen. Klicke ein Outfit an, um die Kleidung zu öffnen.'},
  {id:'games',label:'Spiele',icon:'game',color:'#ff9f32',desc:'Öffentliche Roblox-Spiele dieses Spielers ansehen.'},
@@ -2277,7 +1941,7 @@ def open_app(url, srv):
 
 # ---------------------------------------------------------------- Start
 def main():
-    parser = argparse.ArgumentParser(description="Run the combined Avatar Finder + Discord Name Radar.")
+    parser = argparse.ArgumentParser(description="Run FIELDKIT: Roblox Avatar Finder and public lookup tools.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: localhost)")
     parser.add_argument("--port", type=int, default=PORT, help="Port (default: 8765)")
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically")
@@ -2290,7 +1954,7 @@ def main():
     browser_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
     url = f"http://{browser_host}:{args.port}/"
     print(f"FIELDKIT läuft unter {url}")
-    print(f"Watchlist-Datei: {WATCH_FILE}")
+    print("Startseite: Avatar Finder und 20 Lookup-Tools")
     if not args.no_browser:
         threading.Timer(.7, webbrowser.open, [url]).start()
     try:

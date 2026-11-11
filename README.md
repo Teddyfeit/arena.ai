@@ -1,6 +1,6 @@
 # FIELDKIT
 
-FIELDKIT vereint den vollständigen **Roblox Avatar Finder** und den neuen **Discord Name Sniper** in einer App. Der Avatar Finder ist die Startansicht; den Name Sniper öffnest du über den Tab in derselben Seitenleiste.
+FIELDKIT startet mit einer übersichtlichen **Lookup-Startseite**. Von dort kannst du den vollständigen **Roblox Avatar Finder** und **20 weitere öffentliche Lookup-Tools** auswählen.
 
 ```bash
 python tool_hub.py
@@ -8,14 +8,12 @@ python tool_hub.py
 
 Der Browser öffnet `http://127.0.0.1:8765`. Es werden nur die Python-Standardbibliothek und keine zusätzlichen Pakete benötigt.
 
-Für eine Arena-/Sandbox-Vorschau:
+Für die Arena-/Sandbox-Vorschau:
 
 ```bash
 python tool_hub.py --host 0.0.0.0 --port 8002 --no-browser
 ```
 
-## Discord Name Sniper
+Die Startseite enthält unter anderem Domain-/RDAP-, IP-/ASN-, DNS-, Zertifikats-, TLS-, URL-Reputations-, Archiv-, GitHub- und lokale JSON-/Base64-Lookups. Externe Tools öffnen sich in einem neuen Tab; die eingegebene Suchanfrage kann an den jeweiligen Anbieter übertragen werden. JSON und Base64 werden lokal im Browser verarbeitet.
 
-Du kannst die Länge (2–32 Zeichen) und die Anzahl der Namensideen einstellen. Die Vorschläge werden lokal erzeugt. Die App fragt Discord **nicht** automatisch ab: Prüfe einen Namen selbst in Discord und bestätige erst danach **„Ich habe geprüft – verfügbar“**. Nur nach dieser Bestätigung sendet FIELDKIT den Namen an den optionalen Discord-Webhook.
-
-Die Webhook-Adresse und Namensideen werden lokal in `username_ideas.json` gespeichert. Diese Datei ist in Git ignoriert. Teile sie nicht. Es werden keine Passwörter oder Bot-Tokens gespeichert; die App beansprucht keine Namen.
+Nutze Lookup-Dienste verantwortungsvoll und prüfe nur Informationen oder Systeme, auf die du zugreifen darfst. Es gibt keinen Discord Name Sniper mehr.
