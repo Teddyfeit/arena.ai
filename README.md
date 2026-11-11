@@ -1,6 +1,6 @@
 # FIELDKIT
 
-FIELDKIT startet mit einem integrierten **Lookup Desk**. Er bewahrt den vollständigen **Roblox Avatar Finder** und bietet außerdem 20 öffentliche Lookups, die direkt in der App ausgeführt werden und ihre Ergebnisse dort anzeigen. Zwei weitere Helfer (JSON und Base64) laufen ausschließlich lokal im Browser.
+FIELDKIT startet mit einem integrierten **Lookup Desk** im animierten macOS-inspirierten Liquid-Glass-Stil. Er bewahrt den vollständigen **Roblox Avatar Finder** und bietet außerdem 20 öffentliche Lookups, die direkt in der App ausgeführt werden und ihre Ergebnisse dort anzeigen. Theme, Akzentfarbe, Hintergrund, Glass-Unschärfe und Bewegungsoptionen sind anpassbar und werden seitenübergreifend gespeichert. Zwei weitere Helfer (JSON und Base64) laufen ausschließlich lokal im Browser.
 
 ```bash
 python tool_hub.py

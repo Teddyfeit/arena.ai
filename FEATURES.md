@@ -5,6 +5,8 @@
 - Responsive Startseite mit Suche und Kategorien: Profil, Domain, Netzwerk, Sicherheit, Code, Websuche und Lokal.
 - Der Avatar Finder und alle **20 öffentlichen Lookup-Karten** sind direkt in FIELDKIT integriert: Suchwerte eingeben, Anbieterantworten ansehen, Resultate kopieren oder als JSON herunterladen.
 - Server, Oberfläche und sämtliche Lookup-Provider sind gemeinsam in der ausführbaren Datei `tool_hub.py` enthalten; die separate Testdatei wird nur zum Testen benötigt.
+- macOS-inspiriertes Liquid-Glass-Design mit animierten, lichtdurchlässigen Flächen und interaktiven Werkzeugkarten.
+- Darstellung anpassbar: Hell/Dunkel, Akzentfarbe, Hintergrund, Unschärfestärke, Kartengröße und reduzierte Animationen. Theme, Akzent, Wallpaper, Glass-Intensität und Bewegungspräferenz werden mit dem Avatar Finder geteilt und lokal gespeichert.
 - Dazu kommen zwei lokal im Browser ausgeführte Helfer (JSON-Formatierer und Base64-Konverter). Das sind keine öffentlichen Lookups.
 - Lookup-Ergebnisse und die letzten 100 Abfragen werden in der lokalen SQLite-Datenbank gespeichert; der sichtbare Verlauf zeigt bis zu 12 Einträge und kann gelöscht werden.
 - Wiederholte Lookups verwenden einen anbieterabhängigen Kurzzeit-Cache. Pro Client-IP sind höchstens 24 Lookup-Anfragen pro Minute erlaubt.

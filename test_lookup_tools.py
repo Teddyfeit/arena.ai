@@ -308,6 +308,16 @@ class LocalStateAndHttpTests(unittest.TestCase):
         self.assertEqual(len(lookup_ids), 20)
         self.assertEqual(lookup_ids, set(lookups.LOOKUP_HANDLERS))
 
+    def test_liquid_glass_controls_and_shared_preferences_exist(self):
+        for control in ("themeToggle", "prefsToggle", "accentOptions", "wallOptions", "blurRange", "densityRange", "motionToggle"):
+            with self.subTest(control=control):
+                self.assertIn(f'id="{control}"', tool_hub.HUB_HTML)
+        for preference in ("af-theme", "af-accent", "af-wallpaper", "af-glass-blur", "af-motion"):
+            with self.subTest(preference=preference):
+                self.assertIn(preference, tool_hub.HUB_HTML)
+                self.assertIn(preference, tool_hub.PAGE)
+        self.assertIn("classList.contains('dark')", tool_hub.PAGE)
+
     def test_cache_avoids_repeat_and_history_excludes_api_key(self):
         with patch.object(tool_hub, "perform_lookup", return_value={"lookup": "vt", "domain": "example.com"}) as provider:
             first, cached_first = tool_hub.run_cached_lookup("vt", "example.com", "secret-key")
