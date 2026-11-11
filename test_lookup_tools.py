@@ -2,13 +2,16 @@
 import json
 import re
 import sqlite3
+import subprocess
+import sys
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.request import Request, urlopen
 
-import lookup_tools as lookups
+import tool_hub as lookups
 import tool_hub
 
 
@@ -281,6 +284,12 @@ class LocalStateAndHttpTests(unittest.TestCase):
         with urlopen(self.base + path, timeout=3) as response:
             return response.status, response.read(), response.headers
 
+    def test_application_entrypoint_is_standalone(self):
+        app = Path(__file__).with_name("tool_hub.py")
+        result = subprocess.run([sys.executable, str(app), "--help"], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("public lookup tools", result.stdout)
+
     def test_root_and_avatar_routes_and_health(self):
         code, body, headers = self.get_json("/")
         self.assertEqual(code, 200)
@@ -300,7 +309,7 @@ class LocalStateAndHttpTests(unittest.TestCase):
         self.assertEqual(lookup_ids, set(lookups.LOOKUP_HANDLERS))
 
     def test_cache_avoids_repeat_and_history_excludes_api_key(self):
-        with patch.object(tool_hub.lookup_tools, "perform_lookup", return_value={"lookup": "vt", "domain": "example.com"}) as provider:
+        with patch.object(tool_hub, "perform_lookup", return_value={"lookup": "vt", "domain": "example.com"}) as provider:
             first, cached_first = tool_hub.run_cached_lookup("vt", "example.com", "secret-key")
             second, cached_second = tool_hub.run_cached_lookup("vt", "example.com", "secret-key")
         self.assertFalse(cached_first)
@@ -312,14 +321,14 @@ class LocalStateAndHttpTests(unittest.TestCase):
         self.assertNotIn("secret-key", tool_hub.DB.execute("select url from cache").fetchone()[0])
 
     def test_history_clear_keeps_cache(self):
-        with patch.object(tool_hub.lookup_tools, "perform_lookup", return_value={"ok": True}):
+        with patch.object(tool_hub, "perform_lookup", return_value={"ok": True}):
             tool_hub.run_cached_lookup("gh-user", "person")
         tool_hub.clear_lookup_history()
         self.assertEqual(tool_hub.list_lookup_history(), [])
         self.assertEqual(tool_hub.DB.execute("select count(*) from cache").fetchone()[0], 1)
 
     def test_lookup_http_success_then_cached_result(self):
-        with patch.object(tool_hub.lookup_tools, "perform_lookup", return_value={"lookup": "gh-user", "login": "abc"}) as provider:
+        with patch.object(tool_hub, "perform_lookup", return_value={"lookup": "gh-user", "login": "abc"}) as provider:
             request = Request(self.base + "/lookup/gh-user", data=b'{"query":"abc"}', headers={"Content-Type": "application/json"}, method="POST")
             with urlopen(request, timeout=3) as response:
                 first = json.loads(response.read())
@@ -345,7 +354,7 @@ class LocalStateAndHttpTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 400)
 
     def test_history_get_delete_routes(self):
-        with patch.object(tool_hub.lookup_tools, "perform_lookup", return_value={"ok": True}):
+        with patch.object(tool_hub, "perform_lookup", return_value={"ok": True}):
             tool_hub.run_cached_lookup("gh-user", "abc")
         code, body, _ = self.get_json("/lookup/history?limit=4")
         self.assertEqual(code, 200)

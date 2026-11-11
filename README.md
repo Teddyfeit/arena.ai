@@ -6,7 +6,7 @@ FIELDKIT startet mit einem integrierten **Lookup Desk**. Er bewahrt den vollstä
 python tool_hub.py
 ```
 
-Der Browser öffnet `http://127.0.0.1:8765`. Es werden nur die Python-Standardbibliothek und keine zusätzlichen Pakete benötigt.
+Der Browser öffnet `http://127.0.0.1:8765`. Die komplette ausführbare Anwendung – Avatar Finder, Server, Oberfläche und alle Lookup-Provider – steckt in `tool_hub.py`; außer Python wird keine weitere Laufzeitdatei oder kein Zusatzpaket benötigt.
 
 Für die Arena-/Sandbox-Vorschau:
 
