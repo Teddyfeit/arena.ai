@@ -1,68 +1,61 @@
-# FIELDKIT — vollständige Funktionsliste
+# FIELDKIT — Funktionsübersicht
 
-## Startseite / Lookup Desk
+## Lookup Desk
 
-- Helle, responsive Startseite mit Suchfeld zum Filtern der Werkzeuge.
-- Kategorien: Profil, Domain, Netzwerk, Sicherheit, Code, Websuche und Lokal.
-- **21 Karten insgesamt:** der Roblox Avatar Finder plus 20 weitere Werkzeuge.
-- Externe Dienste öffnen sich mit dem eingegebenen Suchwert in einem neuen Browser-Tab.
-- Hinweis vor externen Lookups: Suchwerte können an den jeweiligen Drittanbieter übertragen werden.
+- Responsive Startseite mit Suche und Kategorien: Profil, Domain, Netzwerk, Sicherheit, Code, Websuche und Lokal.
+- Der Avatar Finder und alle **20 öffentlichen Lookup-Karten** sind direkt in FIELDKIT integriert: Suchwerte eingeben, Anbieterantworten ansehen, Resultate kopieren oder als JSON herunterladen.
+- Dazu kommen zwei lokal im Browser ausgeführte Helfer (JSON-Formatierer und Base64-Konverter). Das sind keine öffentlichen Lookups.
+- Lookup-Ergebnisse und die letzten 100 Abfragen werden in der lokalen SQLite-Datenbank gespeichert; der sichtbare Verlauf zeigt bis zu 12 Einträge und kann gelöscht werden.
+- Wiederholte Lookups verwenden einen anbieterabhängigen Kurzzeit-Cache. Pro Client-IP sind höchstens 24 Lookup-Anfragen pro Minute erlaubt.
+- Antworten sind JSON-Daten des jeweiligen Dienstes; FIELDKIT zeigt Quelle und Einschränkungen an. Drittanbieter erhalten die für die Suche eingegebenen Werte.
 
-## Roblox Avatar Finder
-
-1. **Profil suchen:** Roblox-Benutzername oder Benutzer-ID eingeben.
-2. **Profilansicht:** Avatar, Anzeigename, Benutzername, öffentliche Profilangaben, Beitrittsdatum, Freund-/Follower-Angaben und – sofern Roblox sie bereitstellt – Präsenz ansehen.
-3. **Getragene Items:** aktuelle Kleidung und Accessoires ansehen.
-4. **Outfits:** gespeicherte Roblox-Outfits und deren Items ansehen.
-5. **Spiele:** öffentliche Experiences des Profils ansehen.
-6. **Gruppen:** öffentliche Gruppenmitgliedschaften und Rollen ansehen.
-7. **Favoriten:** Profile im Browser speichern und später wieder öffnen.
-8. **Zuletzt gesucht:** lokale Suchhistorie ansehen, einzelne Einträge löschen oder Verlauf leeren.
-9. **Export und Teilen:** Profil als JSON exportieren, Items als CSV speichern, Profil-Link oder IDs kopieren und Profil teilen.
-10. **Ansicht und Bedienung:** Suchbeispiele, Filter-/Sortieroptionen für Sammlungen, Raster-/Listenansicht, Cache und Verlauf, helle Darstellung, Akzentfarben und Hintergrundthemen.
-11. **Technische Daten:** verfügbare Rohdaten des geladenen Profils ansehen.
-12. **Lokaler Cache:** Roblox-Antworten werden lokal zwischengespeichert, damit wiederholte Lookups schneller sind.
-
-## Die 20 zusätzlichen Lookup-Werkzeuge
+## Die 20 öffentlichen Lookups
 
 ### Domain und Netzwerk
 
-1. **Domain-Registrierung (RDAP / ICANN Lookup)** — öffentliche Registrierungsdaten einer Domain.
-2. **IP- / ASN-Lookup (ipinfo.io)** — öffentliche Netzwerkinformationen einer IP-Adresse.
-3. **DNS A / AAAA** — öffentliche A-Record-Abfrage.
-4. **Mailserver (MX)** — öffentliche Mailserver-Einträge einer Domain.
-5. **SPF / TXT-Einträge** — öffentliche TXT-Einträge, darunter oft SPF-Richtlinien.
-6. **DMARC-Eintrag** — TXT-Abfrage von `_dmarc.<domain>`.
-7. **DNS-Verteilung weltweit** — A-Record-Antworten aus verschiedenen Regionen.
+1. **Domain-RDAP** — Registrierungsstatus, Datenereignisse und Nameserver über öffentliche RDAP-Dienste.
+2. **IP-Netzwerkdaten** — Netzblock, Organisation und Länderangaben aus RDAP für öffentliche IP-Adressen.
+3. **DNS A / AAAA** — IPv4- und IPv6-Antworten über Google Public DNS.
+4. **DNS TXT** — allgemeine TXT-Records einer Domain.
+5. **DNS MX** — Mailserver-Records.
+6. **SPF-Record** — TXT-Antworten für die SPF-Richtlinie.
+7. **DMARC-Record** — TXT-Abfrage für `_dmarc.<domain>`.
+8. **DNS-Propagation** — Vergleich von Antworten zweier öffentlicher DNS-over-HTTPS-Resolver.
 
-### Website-Sicherheit und Verlauf
+### Website-Sicherheit und Reputation
 
-8. **Zertifikat-Transparenz (crt.sh)** — öffentliche TLS-Zertifikate und zugehörige Hostnamen.
-9. **TLS / SSL-Bericht (SSL Labs)** — öffentlicher TLS-Konfigurationstest.
-10. **HTTP-Sicherheitsheader (SecurityHeaders)** — Header-Bericht zu einer angegebenen Website.
-11. **URLScan-Suche** — bereits öffentliche URL-Scan-Ergebnisse suchen.
-12. **URLhaus-Suche** — öffentliche Malware-URL-Datenbank durchsuchen.
-13. **VirusTotal Domain-Bericht** — vorhandenen öffentlichen Domain-Bericht öffnen.
-14. **Website-Technologien (Wappalyzer)** — öffentliche Technologie-Erkennung.
-15. **Wayback Machine** — archivierte Webseiten-Snapshots suchen.
+9. **Zertifikatstransparenz** — öffentliche Zertifikate und Hostnamen via crt.sh.
+10. **SSL Labs** — öffentliche TLS-Analyse und Endpunktbewertungen; eine Analyse kann noch in Bearbeitung sein.
+11. **TLS-Zertifikat live** — verifizierter TLS-Handshake auf Port 443, mit Protokoll, Cipher und Zertifikatsfeldern.
+12. **HTTP-Sicherheitsheader** — sichere HTTPS-Abfrage und Bericht vorhandener/fehlender ausgewählter Header.
+13. **urlscan.io** — Suche in bereits öffentlichen Scan-Ergebnissen.
+14. **URLhaus** — Abfrage der öffentlichen Abuse.ch-Datenbank.
+15. **VirusTotal** — Domain-Reputation und Analyse-Statistiken. Erfordert einen persönlichen VirusTotal-API-Schlüssel; dieser wird nur für die Anfrage im Request-Header gesendet und weder in Verlauf noch Cache-Schlüssel gespeichert.
+16. **Website-Technologien** — lokale Heuristiken über eine kleine öffentliche HTML-Stichprobe und ausgewählte Header; kein vollständiges oder garantiertes Inventar.
 
-### Code und öffentliche Websuche
+### Archive und GitHub
 
-16. **GitHub-Profil** — öffentliches Profil anhand des GitHub-Benutzernamens öffnen.
-17. **GitHub-Reposuche** — öffentliche Repositories nach einem Begriff suchen.
-18. **Öffentliche Username-Suche** — einen Handle als Suchbegriff im öffentlichen Web suchen.
+17. **Wayback Machine** — öffentliche Archiv-Snapshots über die CDX-Suche.
+18. **GitHub-Profil** — ausgewählte öffentliche Profilfelder und Kennzahlen.
+19. **GitHub-Repositories** — öffentliche Repository-Suche.
+20. **GitHub-Nutzersuche** — öffentliche GitHub-Profile; Suche ist bewusst auf GitHub begrenzt.
 
-### Lokale Daten-Helfer
+## Lokale Helfer
 
-19. **JSON formatieren** — JSON im Browser parsen, validieren und lesbar formatieren.
-20. **Base64 kodieren / dekodieren** — Text im Browser umwandeln; der Text wird nicht an den Server gesendet.
+- **JSON-Formatierer** — parst und formatiert JSON ausschließlich im Browser.
+- **Base64-Konverter** — kodiert oder dekodiert Text ausschließlich im Browser.
 
-## Nicht enthalten
+## Roblox Avatar Finder
 
-- Kein Discord Name Sniper oder automatisierter Discord-Verfügbarkeitscheck.
-- Keine Passwort-, Bot-Token- oder API-Schlüssel-Eingabe für die Homepage-Tools.
-- Keine automatischen Scans ganzer IP-Bereiche, Konten oder Domains.
-- Die Homepage selbst lädt externe Ergebnisse nicht in die App; sie verlinkt die jeweiligen öffentlichen Dienste.
+Die bestehende Avatar-Finder-Seite bleibt unter `/avatar` erhalten und ist auch über die Startseite erreichbar. Sie bietet weiterhin Profil-/Namenssuche, Avatar und Profildetails, Items, Outfits, Spiele, Gruppen, Favoriten, lokalen Suchverlauf, Export-/Kopierfunktionen, Filter und Sortierung, Ansichtsoptionen, Browser-Cache sowie den lokalen Python-/SQLite-Cache.
+
+## Schutzmaßnahmen und Grenzen
+
+- Lookup-Ziele zu externen Datenanbietern sind im Code festgelegt; beliebige Provider-URLs können nicht über die Lookup-API eingeschleust werden.
+- Website- und TLS-Abfragen erlauben nur öffentliche Domains/IP-Adressen. Website-Aufrufe werden auf eine validierte öffentliche IP gepinnt, folgen keinen Redirects und lesen nur eine begrenzte HTML-Antwort.
+- Keine Abfragen privater/lokaler/reservierter IP-Adressen; keine Scans von IP-Bereichen oder automatisierten Konten.
+- RDAP, SSL Labs, VirusTotal und andere Anbieter können Limits, verzögerte Ergebnisse oder eigene Verfügbarkeitsprobleme haben. FIELDKIT kann keine Anbieterantwort garantieren.
+- Es gibt keinen Discord Name Sniper und keine Discord-Verfügbarkeits- oder Beanspruchungsfunktion.
 
 ## Start
 
