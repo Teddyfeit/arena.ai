@@ -88,6 +88,18 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertIn("cycleGlass", page)
         self.assertIn("toggleMotion", page)
 
+    def test_sections_are_stacked_and_sidebar_scrolls_without_wheel_paging(self):
+        page = tool_hub.PAGE
+        sections = ("start", "profil", "favorites", "items", "outfits", "games", "groups", "raw")
+        positions = [page.index(f'id="t-{section}"') for section in sections]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn(".tab{display:block", page)
+        self.assertNotIn(".tab{display:none}", page)
+        self.assertIn("content.scrollTo({top:Math.max(0,top)", page)
+        self.assertIn("contentArea.addEventListener('scroll'", page)
+        self.assertNotIn("addEventListener('wheel'", page)
+        self.assertNotIn("tab-wheel-next", page)
+
     def test_recent_search_api_saves_lists_and_clears_profiles(self):
         with self.request("/x/recent", method="POST", body={
             "userId": "12345", "username": "builderman", "displayName": "Builder Man",
