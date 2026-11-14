@@ -1,529 +1,11 @@
-# FIELDKIT — Roblox Avatar Finder + Lookup Desk.
+# FIELDKIT — Roblox Avatar Finder.
 # Start with: python tool_hub.py
 from __future__ import annotations
 
-import argparse, os, sys, json, re, time, sqlite3, threading, webbrowser, subprocess, tempfile
-import urllib.request, urllib.error, urllib.parse, hashlib
-
-# Public lookup providers are embedded below so this application runs from this file alone.
-import concurrent.futures, ipaddress, socket, ssl
-from dataclasses import dataclass
-from http.client import HTTPSConnection, HTTPResponse
-from typing import Any, Callable
+import argparse, os, sys, json, re, time, sqlite3, threading, webbrowser, subprocess
+import urllib.request, urllib.error, urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from pathlib import Path
-from datetime import datetime, timezone
-
-USER_AGENT = "FIELDKIT-LookupDesk/1.0 (+local public-information lookup)"
-MAX_RESPONSE_BYTES = 1_500_000
-MAX_SITE_BYTES = 300_000
-MAX_REDIRECTS = 4
-DNS_PROVIDERS = {
-    "Google Public DNS": "https://dns.google/resolve",
-    "Cloudflare DNS": "https://cloudflare-dns.com/dns-query",
-}
-
-
-class LookupError(ValueError):
-    """Safe, user-displayable lookup error."""
-
-
-@dataclass(frozen=True)
-class Upstream:
-    name: str
-    hosts: frozenset[str]
-    timeout: float = 12.0
-    max_bytes: int = MAX_RESPONSE_BYTES
-
-
-PROVIDERS = {
-    "rdap": Upstream("RDAP", frozenset({"rdap.org", "rdap.arin.net", "rdap.verisign.com", "rdap.publicinterestregistry.org"})),
-    "dns": Upstream("DNS", frozenset({"dns.google", "cloudflare-dns.com"})),
-    "ct": Upstream("Certificate Transparency", frozenset({"crt.sh"})),
-    "ssllabs": Upstream("SSL Labs", frozenset({"api.ssllabs.com"}), timeout=20.0),
-    "urlscan": Upstream("urlscan.io", frozenset({"urlscan.io"})),
-    "urlhaus": Upstream("URLhaus", frozenset({"urlhaus-api.abuse.ch"})),
-    "virustotal": Upstream("VirusTotal", frozenset({"www.virustotal.com"})),
-    "wayback": Upstream("Wayback Machine", frozenset({"web.archive.org"})),
-    "github": Upstream("GitHub API", frozenset({"api.github.com"})),
-}
-
-
-def _clean_text(value: Any, limit: int = 300) -> str:
-    text = str(value or "").strip()
-    if len(text) > limit:
-        raise LookupError(f"Eingabe ist zu lang (maximal {limit} Zeichen).")
-    if any(ord(ch) < 32 for ch in text):
-        raise LookupError("Die Eingabe enthält nicht erlaubte Steuerzeichen.")
-    return text
-
-
-def normalize_domain(value: Any) -> str:
-    value = _clean_text(value, 253).rstrip(".").lower()
-    if "://" in value or "/" in value or "@" in value or "\\" in value:
-        raise LookupError("Bitte nur einen Domainnamen eingeben, ohne URL, Pfad oder Zugangsdaten.")
-    try:
-        value = value.encode("idna").decode("ascii")
-    except UnicodeError as exc:
-        raise LookupError("Der Domainname ist ungültig.") from exc
-    if len(value) < 3 or len(value) > 253 or "." not in value:
-        raise LookupError("Bitte eine vollständige Domain wie example.com eingeben.")
-    if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", value):
-        raise LookupError("Der Domainname enthält ungültige Zeichen.")
-    return value
-
-
-def normalize_ip(value: Any) -> str:
-    try:
-        address = ipaddress.ip_address(_clean_text(value, 64))
-    except ValueError as exc:
-        raise LookupError("Bitte eine gültige IPv4- oder IPv6-Adresse eingeben.") from exc
-    if (not address.is_global or address.is_multicast or address.is_reserved or address.is_unspecified
-            or address.is_loopback or address.is_link_local or address.is_private):
-        raise LookupError("Private, reservierte und lokale IP-Adressen werden nicht abgefragt.")
-    return address.compressed
-
-
-def normalize_public_url(value: Any) -> urllib.parse.SplitResult:
-    text = _clean_text(value, 2048)
-    parsed = urllib.parse.urlsplit(text if "://" in text else "https://" + text)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise LookupError("Bitte eine öffentliche HTTPS-Adresse ohne Benutzername oder Passwort eingeben.")
-    if parsed.port not in (None, 443):
-        raise LookupError("Nur der HTTPS-Standardport 443 wird unterstützt.")
-    try:
-        domain = normalize_domain(parsed.hostname)
-    except LookupError:
-        raise LookupError("Bitte eine gültige öffentliche Domain eingeben.") from None
-    if domain in {"localhost", "localhost.localdomain"} or domain.endswith(".localhost"):
-        raise LookupError("Lokale Hosts werden nicht abgefragt.")
-    return parsed._replace(netloc=domain)
-
-
-def _validate_provider_url(url: str, provider: Upstream) -> urllib.parse.SplitResult:
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in provider.hosts:
-        raise LookupError("Interner Provider-Fehler: nicht erlaubter Zielhost.")
-    if parsed.username or parsed.password or parsed.port not in (None, 443):
-        raise LookupError("Unsichere Zieladresse zurückgewiesen.")
-    return parsed
-
-
-class _SafeRedirect(urllib.request.HTTPRedirectHandler):
-    """Allow redirects only to HTTPS public hostnames; do not allow IP literals."""
-    def __init__(self, allowed_hosts: frozenset[str]):
-        super().__init__()
-        self.allowed_hosts = allowed_hosts
-        self.count = 0
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        self.count += 1
-        if self.count > MAX_REDIRECTS:
-            raise LookupError("Zu viele Weiterleitungen vom Lookup-Anbieter.")
-        parsed = urllib.parse.urlsplit(newurl)
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise LookupError("Unsichere Weiterleitung wurde blockiert.")
-        try:
-            ipaddress.ip_address(parsed.hostname)
-        except ValueError:
-            # RDAP referrals are restricted to the exact registry hosts returned by our bootstrap allowlist.
-            if parsed.hostname in self.allowed_hosts:
-                return super().redirect_request(req, fp, code, msg, headers, newurl)
-            raise LookupError("Nicht erlaubtes Weiterleitungsziel wurde blockiert.")
-        raise LookupError("Weiterleitung auf eine IP-Adresse wurde blockiert.")
-
-
-def request_bytes(url: str, provider: Upstream, *, method: str = "GET", data: bytes | None = None,
-                  headers: dict[str, str] | None = None, redirect_hosts: frozenset[str] | None = None) -> bytes:
-    parsed = _validate_provider_url(url, provider)
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "User-Agent": USER_AGENT, "Accept": "application/json, text/plain;q=0.9, */*;q=0.5",
-        **(headers or {}),
-    })
-    handlers = [_SafeRedirect(redirect_hosts or provider.hosts)]
-    opener = urllib.request.build_opener(*handlers)
-    try:
-        with opener.open(req, timeout=provider.timeout) as response:
-            final = urllib.parse.urlsplit(response.geturl())
-            if final.scheme != "https" or not final.hostname:
-                raise LookupError("Unsicheres Ziel nach Weiterleitung.")
-            payload = response.read(provider.max_bytes + 1)
-            if len(payload) > provider.max_bytes:
-                raise LookupError("Die Antwort des Anbieters ist zu groß.")
-            if not 200 <= response.status < 300:
-                raise LookupError(f"{provider.name} antwortete mit HTTP {response.status}.")
-            return payload
-    except LookupError:
-        raise
-    except urllib.error.HTTPError as exc:
-        if exc.code == 429:
-            raise LookupError(f"{provider.name} ist gerade ausgelastet. Bitte später erneut versuchen.") from None
-        raise LookupError(f"{provider.name} antwortete mit HTTP {exc.code}.") from None
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise LookupError(f"{provider.name} ist derzeit nicht erreichbar.") from exc
-
-
-def request_json(url: str, provider: Upstream, **kwargs) -> Any:
-    payload = request_bytes(url, provider, **kwargs)
-    try:
-        return json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise LookupError(f"{provider.name} lieferte keine gültigen JSON-Daten.") from exc
-
-
-def _url(base: str, **params: Any) -> str:
-    return base + ("&" if "?" in base else "?") + urllib.parse.urlencode(params)
-
-
-def lookup_domain_rdap(query: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    url = f"https://rdap.org/domain/{urllib.parse.quote(domain, safe='.-')}"
-    data = request_json(url, PROVIDERS["rdap"], redirect_hosts=frozenset({"rdap.org", "rdap.arin.net", "rdap.verisign.com", "rdap.publicinterestregistry.org", "rdap.nic.io", "rdap.nic.google", "rdap.identitydigital.services"}))
-    events = [{"event": x.get("eventAction"), "date": x.get("eventDate")} for x in data.get("events", []) if isinstance(x, dict)]
-    nameservers = [x.get("ldhName") for x in data.get("nameservers", []) if isinstance(x, dict) and x.get("ldhName")]
-    return {"provider": "RDAP", "domain": data.get("ldhName", domain), "status": data.get("status", []), "events": events,
-            "nameservers": nameservers, "entities": len(data.get("entities", [])), "source": "ICANN RDAP"}
-
-
-def lookup_ip(query: str) -> dict[str, Any]:
-    address = normalize_ip(query)
-    url = f"https://rdap.org/ip/{urllib.parse.quote(address, safe=':')}"
-    data = request_json(url, PROVIDERS["rdap"], redirect_hosts=frozenset({"rdap.org", "rdap.arin.net", "rdap.apnic.net", "rdap.db.ripe.net", "rdap.lacnic.net", "rdap.afrinic.net"}))
-    return {"provider": "RDAP", "ip": address, "name": data.get("name"), "handle": data.get("handle"),
-            "country": data.get("country"), "startAddress": data.get("startAddress"), "endAddress": data.get("endAddress"),
-            "entities": len(data.get("entities", [])), "source": "Regional Internet Registry RDAP"}
-
-
-def lookup_dns(query: str, record_type: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    if record_type not in {"A", "AAAA", "MX", "TXT"}:
-        raise LookupError("Dieser DNS-Record-Typ wird nicht unterstützt.")
-    url = _url("https://dns.google/resolve", name=domain, type=record_type)
-    data = request_json(url, PROVIDERS["dns"])
-    return {"provider": "Google Public DNS", "name": domain, "type": record_type,
-            "status": data.get("Status"), "answers": [
-                {"name": row.get("name"), "type": row.get("type"), "ttl": row.get("TTL"), "data": row.get("data")}
-                for row in data.get("Answer", []) if isinstance(row, dict)], "source": "DNS over HTTPS"}
-
-
-def lookup_dns_addresses(query: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        v4 = pool.submit(lookup_dns, domain, "A")
-        v6 = pool.submit(lookup_dns, domain, "AAAA")
-        results = {"A": v4.result(), "AAAA": v6.result()}
-    return {"domain": domain, "records": results, "source": "Google Public DNS over HTTPS"}
-
-
-def lookup_tls_certificate(query: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    address = _resolve_public(domain, 443)
-    context = ssl.create_default_context()
-    try:
-        with socket.create_connection((address, 443), timeout=10) as raw:
-            with context.wrap_socket(raw, server_hostname=domain) as secured:
-                cert = secured.getpeercert()
-                cipher = secured.cipher()
-                return {
-                    "domain": domain, "address": address, "protocol": secured.version(),
-                    "cipher": cipher[0] if cipher else None,
-                    "subject": [[list(item) for item in group] for group in cert.get("subject", ())],
-                    "issuer": [[list(item) for item in group] for group in cert.get("issuer", ())],
-                    "notBefore": cert.get("notBefore"), "notAfter": cert.get("notAfter"),
-                    "subjectAltNames": [name for kind, name in cert.get("subjectAltName", ()) if kind == "DNS"][:100],
-                    "source": "Live TLS handshake to validated public IP on port 443",
-                }
-    except (OSError, ssl.SSLError) as exc:
-        raise LookupError("Der TLS-Endpunkt konnte nicht sicher abgefragt werden.") from exc
-
-
-def lookup_dmarc(query: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    # `_dmarc.example.com` is a valid DNS name but not a registrable domain, so query the provider directly.
-    data = request_json(_url("https://dns.google/resolve", name="_dmarc." + domain, type="TXT"), PROVIDERS["dns"])
-    return {"provider": "Google Public DNS", "name": "_dmarc." + domain, "type": "TXT",
-            "status": data.get("Status"), "answers": [x.get("data") for x in data.get("Answer", []) if isinstance(x, dict)],
-            "source": "DNS over HTTPS"}
-
-
-def lookup_dns_propagation(query: str, record_type: str = "A") -> dict[str, Any]:
-    domain = normalize_domain(query)
-    if record_type not in {"A", "AAAA", "MX", "TXT"}:
-        raise LookupError("Dieser DNS-Record-Typ wird nicht unterstützt.")
-    providers = [("Google Public DNS", "https://dns.google/resolve"), ("Cloudflare DNS", "https://cloudflare-dns.com/dns-query")]
-    def check(item):
-        label, base = item
-        try:
-            provider_data = request_json(_url(base, name=domain, type=record_type), PROVIDERS["dns"], headers={"Accept": "application/dns-json"})
-            return {"resolver": label, "status": provider_data.get("Status"), "answers": [x.get("data") for x in provider_data.get("Answer", []) if isinstance(x, dict)]}
-        except LookupError as exc:
-            return {"resolver": label, "error": str(exc)}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        answers = list(pool.map(check, providers))
-    return {"name": domain, "type": record_type, "resolvers": answers}
-
-
-def lookup_certificates(query: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    url = _url("https://crt.sh/", q="%." + domain, output="json")
-    data = request_json(url, PROVIDERS["ct"])
-    seen, rows = set(), []
-    for item in data if isinstance(data, list) else []:
-        if not isinstance(item, dict):
-            continue
-        names = item.get("name_value", "").splitlines()
-        for name in names:
-            value = name.strip().lower()
-            if value and value not in seen:
-                seen.add(value)
-                rows.append({"name": value, "issuer": item.get("issuer_name"), "notBefore": item.get("not_before"), "notAfter": item.get("not_after")})
-    return {"domain": domain, "certificates": rows[:300], "count": len(rows), "source": "crt.sh public CT logs"}
-
-
-def lookup_ssllabs(query: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    url = _url("https://api.ssllabs.com/api/v3/analyze", host=domain, publish="off", all="done", fromCache="on")
-    data = request_json(url, PROVIDERS["ssllabs"])
-    endpoints = [{"ip": x.get("ipAddress"), "grade": x.get("grade"), "status": x.get("statusMessage"),
-                  "details": x.get("details", {}).get("gradeTrustIgnored") if isinstance(x.get("details"), dict) else None}
-                 for x in data.get("endpoints", []) if isinstance(x, dict)]
-    return {"domain": domain, "status": data.get("status"), "statusMessage": data.get("statusMessage"), "endpoints": endpoints,
-            "source": "SSL Labs API; report may be queued or cached"}
-
-
-def lookup_urlscan(query: str) -> dict[str, Any]:
-    target = _clean_text(query, 2048)
-    if not target or any(ch.isspace() for ch in target):
-        raise LookupError("Gib eine Domain oder URL ohne Leerzeichen ein.")
-    url = _url("https://urlscan.io/api/v1/search/", q=target)
-    data = request_json(url, PROVIDERS["urlscan"])
-    results = []
-    for item in data.get("results", [])[:30]:
-        page = item.get("page") or {}
-        task = item.get("task") or {}
-        results.append({"url": page.get("url"), "domain": page.get("domain"), "ip": page.get("ip"),
-                        "country": page.get("country"), "verdicts": item.get("verdicts"),
-                        "result": task.get("result"), "time": task.get("time")})
-    return {"query": target, "total": data.get("total"), "results": results, "source": "urlscan.io public search"}
-
-
-def lookup_urlhaus(query: str) -> dict[str, Any]:
-    target = normalize_domain(query)
-    body = urllib.parse.urlencode({"host": target}).encode("ascii")
-    data = request_json("https://urlhaus-api.abuse.ch/v1/host/", PROVIDERS["urlhaus"], method="POST", data=body,
-                        headers={"Content-Type": "application/x-www-form-urlencoded"})
-    urls = [{"url": x.get("url"), "threat": x.get("threat"), "status": x.get("url_status"), "dateAdded": x.get("date_added")}
-            for x in data.get("urls", [])[:100] if isinstance(x, dict)]
-    return {"host": target, "queryStatus": data.get("query_status"), "urls": urls, "source": "URLhaus abuse.ch"}
-
-
-def lookup_virustotal(query: str, api_key: str) -> dict[str, Any]:
-    raw = _clean_text(query, 256)
-    try:
-        ipaddress.ip_address(raw)
-    except ValueError:
-        target = normalize_domain(raw)
-        endpoint = "domains"
-        target_type = "domain"
-    else:
-        target = normalize_ip(raw)
-        endpoint = "ip_addresses"
-        target_type = "IP"
-    key = _clean_text(api_key, 256)
-    if not key:
-        raise LookupError("VirusTotal benötigt deinen persönlichen API-Schlüssel. Er wird nur für diese Anfrage verwendet und nicht gespeichert.")
-    url = f"https://www.virustotal.com/api/v3/{endpoint}/{urllib.parse.quote(target, safe='.-:')}"
-    data = request_json(url, PROVIDERS["virustotal"], headers={"x-apikey": key})
-    attrs = ((data.get("data") or {}).get("attributes") or {})
-    stats = attrs.get("last_analysis_stats") or {}
-    return {"target": target, "targetType": target_type, "reputation": attrs.get("reputation"),
-            "lastAnalysisDate": attrs.get("last_analysis_date"), "analysisStats": stats,
-            "categories": attrs.get("categories"), "source": "VirusTotal API v3"}
-
-
-def lookup_wayback(query: str) -> dict[str, Any]:
-    domain = normalize_domain(query)
-    url = _url("https://web.archive.org/cdx/search/cdx", url=domain + "/*", output="json",
-               filter="statuscode:200", collapse="digest", fl="timestamp,original,statuscode", limit="200")
-    data = request_json(url, PROVIDERS["wayback"])
-    rows = []
-    for row in data[1:] if isinstance(data, list) and data else []:
-        if isinstance(row, list) and len(row) >= 3:
-            rows.append({"timestamp": row[0], "url": row[1], "status": row[2]})
-    return {"domain": domain, "snapshots": rows, "count": len(rows), "source": "Internet Archive CDX API"}
-
-
-def lookup_github_user(query: str) -> dict[str, Any]:
-    username = _clean_text(query, 39)
-    if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", username):
-        raise LookupError("GitHub-Namen dürfen hier nur Buchstaben, Zahlen und Bindestriche enthalten.")
-    data = request_json(f"https://api.github.com/users/{urllib.parse.quote(username)}", PROVIDERS["github"],
-                        headers={"Accept": "application/vnd.github+json"})
-    return {"login": data.get("login"), "name": data.get("name"), "bio": data.get("bio"), "company": data.get("company"),
-            "location": data.get("location"), "blog": data.get("blog"), "publicRepos": data.get("public_repos"),
-            "followers": data.get("followers"), "following": data.get("following"), "createdAt": data.get("created_at"),
-            "profile": data.get("html_url"), "source": "GitHub REST API"}
-
-
-def lookup_github_repos(query: str) -> dict[str, Any]:
-    value = _clean_text(query, 160)
-    if len(value) < 2:
-        raise LookupError("Gib mindestens zwei Zeichen als Suchbegriff ein.")
-    data = request_json(_url("https://api.github.com/search/repositories", q=value, per_page=30, sort="stars"), PROVIDERS["github"],
-                        headers={"Accept": "application/vnd.github+json"})
-    rows = [{"name": x.get("full_name"), "description": x.get("description"), "stars": x.get("stargazers_count"),
-             "language": x.get("language"), "updatedAt": x.get("updated_at"), "url": x.get("html_url")}
-            for x in data.get("items", []) if isinstance(x, dict)]
-    return {"query": value, "total": data.get("total_count"), "repositories": rows, "source": "GitHub REST API"}
-
-
-def lookup_github_users(query: str) -> dict[str, Any]:
-    value = _clean_text(query, 100)
-    if len(value) < 2:
-        raise LookupError("Gib mindestens zwei Zeichen als Suchbegriff ein.")
-    data = request_json(_url("https://api.github.com/search/users", q=value, per_page=30), PROVIDERS["github"],
-                        headers={"Accept": "application/vnd.github+json"})
-    return {"query": value, "total": data.get("total_count"),
-            "users": [{"login": x.get("login"), "url": x.get("html_url"), "avatar": x.get("avatar_url")}
-                      for x in data.get("items", []) if isinstance(x, dict)], "scope": "GitHub only", "source": "GitHub REST API"}
-
-
-def _resolve_public(host: str, port: int) -> str:
-    try:
-        records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        raise LookupError("Die Website konnte nicht aufgelöst werden.") from exc
-    addresses = sorted({row[4][0] for row in records})
-    if not addresses:
-        raise LookupError("Für die Domain wurde keine IP-Adresse gefunden.")
-    for item in addresses:
-        ip = ipaddress.ip_address(item.split("%", 1)[0])
-        if not ip.is_global:
-            raise LookupError("Private oder reservierte IP-Adressen werden nicht abgefragt.")
-    return addresses[0]
-
-
-class _PinnedHTTPSConnection(HTTPSConnection):
-    """HTTPS connection pinned to a previously validated public IP, preserving SNI."""
-    def __init__(self, host: str, ip: str, timeout: float):
-        super().__init__(host, 443, timeout=timeout, context=ssl.create_default_context())
-        self._pinned_ip = ip
-
-    def connect(self):
-        raw = socket.create_connection((self._pinned_ip, self.port), self.timeout)
-        self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
-
-
-def safe_fetch_site(value: str) -> dict[str, Any]:
-    """Fetch a small public HTTPS page without following redirects or allowing SSRF."""
-    parsed = normalize_public_url(value)
-    host = parsed.hostname or ""
-    ip = _resolve_public(host, 443)
-    connection = _PinnedHTTPSConnection(host, ip, 10.0)
-    path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
-    try:
-        connection.request("GET", path, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"})
-        response: HTTPResponse = connection.getresponse()
-        headers = {k.lower(): v[:1000] for k, v in response.getheaders() if k.lower() in {
-            "server", "content-type", "content-security-policy", "strict-transport-security", "x-frame-options",
-            "x-content-type-options", "referrer-policy", "permissions-policy", "cache-control", "location",
-            "x-powered-by", "via", "alt-svc", "access-control-allow-origin"}}
-        if 300 <= response.status < 400:
-            return {"url": f"https://{host}{path}", "status": response.status, "headers": headers,
-                    "redirect": headers.get("location"), "redirectFollowed": False, "body": ""}
-        content_type = headers.get("content-type", "")
-        body = response.read(MAX_SITE_BYTES + 1)
-        if len(body) > MAX_SITE_BYTES:
-            body = body[:MAX_SITE_BYTES]
-        try:
-            text = body.decode("utf-8", "replace")
-        except Exception:
-            text = ""
-        return {"url": f"https://{host}{path}", "status": response.status, "headers": headers,
-                "contentType": content_type, "body": text[:MAX_SITE_BYTES], "bytesRead": len(body)}
-    except (OSError, ssl.SSLError, TimeoutError) as exc:
-        raise LookupError("Die öffentliche Website konnte nicht sicher geladen werden.") from exc
-    finally:
-        connection.close()
-
-
-def lookup_security_headers(query: str) -> dict[str, Any]:
-    result = safe_fetch_site(query)
-    headers = result.get("headers", {})
-    recommendations = {
-        "strict-transport-security": "HSTS schützt HTTPS-Verbindungen vor Downgrade-Angriffen.",
-        "content-security-policy": "CSP begrenzt, welche Quellen Inhalte laden dürfen.",
-        "x-content-type-options": "nosniff verhindert bestimmte MIME-Type-Verwechslungen.",
-        "x-frame-options": "Schränkt Einbettung in Frames ein; alternativ CSP frame-ancestors.",
-        "referrer-policy": "Legt fest, wie viele Referrer-Informationen gesendet werden.",
-        "permissions-policy": "Begrenzt Browser-Funktionen wie Kamera und Mikrofon.",
-    }
-    names = list(recommendations)
-    return {"url": result["url"], "status": result["status"], "present": {k: headers[k] for k in names if k in headers},
-            "missing": [{"header": k, "why": v} for k, v in recommendations.items() if k not in headers],
-            "redirect": result.get("redirect"), "source": "Direct HTTPS response; redirect is not followed"}
-
-
-def lookup_technology(query: str) -> dict[str, Any]:
-    result = safe_fetch_site(query)
-    body = result.get("body", "")
-    headers = result.get("headers", {})
-    sample = (body[:MAX_SITE_BYTES]).lower()
-    matches = []
-    checks = [
-        ("WordPress", "wp-content"), ("Drupal", "drupal.settings"), ("Joomla", "joomla"),
-        ("Shopify", "cdn.shopify.com"), ("Wix", "wixstatic.com"), ("Squarespace", "squarespace.com"),
-        ("React", "reactroot"), ("Next.js", "_next/static"), ("Vue", "__vue__"),
-        ("Angular", "ng-version"), ("Svelte", "svelte"), ("jQuery", "jquery"),
-        ("Google Analytics", "google-analytics.com"), ("Google Tag Manager", "googletagmanager.com"),
-        ("Cloudflare", "cf-ray"), ("Bootstrap", "bootstrap.min.css"),
-    ]
-    for product, needle in checks:
-        if needle in sample or (product == "Cloudflare" and "cf-ray" in headers):
-            matches.append(product)
-    powered = headers.get("x-powered-by") or headers.get("server")
-    return {"url": result["url"], "status": result["status"], "technologies": matches,
-            "serverHeader": powered, "detectionNote": "Heuristics from a small public HTML sample and selected response headers; not a definitive inventory.",
-            "source": "FIELDKIT local fingerprint rules"}
-
-
-LOOKUP_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
-    "rdap": lookup_domain_rdap,
-    "ip": lookup_ip,
-    "dns-a": lookup_dns_addresses,
-    "dns-txt": lambda q: lookup_dns(q, "TXT"),
-    "tls-cert": lookup_tls_certificate,
-    "dns-mx": lambda q: lookup_dns(q, "MX"),
-    "spf": lambda q: lookup_dns(q, "TXT"),
-    "dmarc": lookup_dmarc,
-    "ct": lookup_certificates,
-    "ssl": lookup_ssllabs,
-    "headers": lookup_security_headers,
-    "urlscan": lookup_urlscan,
-    "urlhaus": lookup_urlhaus,
-    "vt": lookup_virustotal,
-    "dnscheck": lookup_dns_propagation,
-    "tech": lookup_technology,
-    "archive": lookup_wayback,
-    "gh-user": lookup_github_user,
-    "gh-search": lookup_github_repos,
-    "user-search": lookup_github_users,
-}
-
-
-def perform_lookup(tool: str, query: Any, *, api_key: str = "") -> dict[str, Any]:
-    handler = LOOKUP_HANDLERS.get(tool)
-    if handler is None:
-        raise LookupError("Unbekanntes Lookup-Werkzeug.")
-    query = _clean_text(query, 2048)
-    if tool == "vt":
-        result = handler(query, api_key)
-    else:
-        result = handler(query)
-    result["lookup"] = tool
-    result["queriedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    return result
 
 
 try:
@@ -559,7 +41,8 @@ with dblock:
     DB.execute("pragma journal_mode=WAL")
     DB.execute("create table if not exists cache(url text primary key, code integer, body blob, expires real)")
     DB.execute("create table if not exists recent(user_id text primary key, username text, display_name text, avatar_url text, ts real)")
-    DB.execute("create table if not exists lookup_history(id integer primary key autoincrement, tool text not null, query text not null, result text not null, created real not null)")
+    DB.execute("delete from cache where url like 'LOOKUP %'")
+    DB.execute("drop table if exists lookup_history")
     DB.execute("delete from cache where expires < ?", (time.time() - 86400,))
     DB.commit()
 
@@ -579,67 +62,6 @@ def db_del(*keys):
     with dblock:
         for k in keys:
             DB.execute("delete from cache where url=?", (k,))
-        DB.commit()
-
-
-LOOKUP_TTLS = {"rdap": 3600, "ip": 3600, "dns-a": 120, "dns-txt": 120, "dns-mx": 120, "spf": 120,
-               "dmarc": 120, "ct": 1800, "ssl": 1800, "tls-cert": 1800, "headers": 300, "urlscan": 300,
-               "urlhaus": 300, "vt": 300, "dnscheck": 120, "tech": 300, "archive": 3600,
-               "gh-user": 300, "gh-search": 180, "user-search": 180}
-LOOKUP_RATE_LIMIT = threading.Lock()
-LOOKUP_REQUESTS = {}
-
-
-def allow_lookup_request(client_ip):
-    now = time.monotonic()
-    with LOOKUP_RATE_LIMIT:
-        active = [stamp for stamp in LOOKUP_REQUESTS.get(client_ip, []) if now - stamp < 60]
-        if len(active) >= 24:
-            LOOKUP_REQUESTS[client_ip] = active
-            return False
-        active.append(now)
-        LOOKUP_REQUESTS[client_ip] = active
-        return True
-
-
-def run_cached_lookup(tool, query, api_key=""):
-    secret_fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else ""
-    cache_key = "LOOKUP " + hashlib.sha256((tool + "\\0" + query + "\\0" + secret_fingerprint).encode()).hexdigest()
-    cached_result = db_get(cache_key)
-    from_cache = bool(cached_result and cached_result[2] > time.time())
-    if from_cache:
-        result = json.loads(cached_result[1].decode("utf-8"))
-    else:
-        result = perform_lookup(tool, query, api_key=api_key)
-        db_put(cache_key, 200, json.dumps(result, ensure_ascii=False).encode("utf-8"), LOOKUP_TTLS.get(tool, 120))
-    payload = json.dumps(result, ensure_ascii=False)
-    if len(payload.encode("utf-8")) <= 512_000:
-        with dblock:
-            DB.execute("insert into lookup_history(tool,query,result,created) values(?,?,?,?)", (tool, query[:300], payload, time.time()))
-            DB.execute("delete from lookup_history where id not in (select id from lookup_history order by created desc limit 100)")
-            DB.commit()
-    return result, from_cache
-
-
-def list_lookup_history(limit=12):
-    limit = max(1, min(int(limit), 30))
-    with dblock:
-        rows = DB.execute("select id,tool,query,created from lookup_history order by created desc limit ?", (limit,)).fetchall()
-    return [{"id": r[0], "tool": r[1], "query": r[2], "created": datetime.fromtimestamp(r[3], timezone.utc).isoformat(timespec="seconds")} for r in rows]
-
-
-def get_lookup_history(entry_id):
-    with dblock:
-        row = DB.execute("select id,tool,query,result,created from lookup_history where id=?", (entry_id,)).fetchone()
-    if not row:
-        return None
-    return {"id": row[0], "tool": row[1], "query": row[2], "result": json.loads(row[3]),
-            "created": datetime.fromtimestamp(row[4], timezone.utc).isoformat(timespec="seconds")}
-
-
-def clear_lookup_history():
-    with dblock:
-        DB.execute("delete from lookup_history")
         DB.commit()
 
 
@@ -907,8 +329,6 @@ def outfits_payload(uid, fresh=False):
         return 200, out, "MISS"
 
 
-ROOT = Path(__file__).resolve().parent
-HUB_HTML = '<!doctype html>\n<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#e8edf7"><title>FIELDKIT — Lookup Desk</title>\n<style>\n:root{color-scheme:light;--ink:#202536;--muted:#6f7890;--line:rgba(255,255,255,.62);--acc:#168df5;--acc-rgb:22,141,245;--surface:rgba(255,255,255,.54);--surface-strong:rgba(255,255,255,.72);--surface-soft:rgba(255,255,255,.32);--shadow:0 24px 70px rgba(28,43,78,.16);--blur:25px;--card-min:248px;--wall-a:#68a5ff;--wall-b:#ef9ac9;--wall-c:#80daba;--wall-d:#9b8dff;font-family:Inter,-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif}html.dark{color-scheme:dark;--ink:#f3f5fb;--muted:#a8b0c4;--line:rgba(255,255,255,.16);--surface:rgba(27,31,46,.58);--surface-strong:rgba(34,39,57,.79);--surface-soft:rgba(255,255,255,.055);--shadow:0 28px 80px rgba(0,0,0,.38)}*{box-sizing:border-box}html{min-height:100%;scroll-behavior:smooth}body{position:relative;isolation:isolate;margin:0;min-height:100vh;overflow-x:hidden;background:#e8edf7;color:var(--ink);font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;transition:background-color .5s,color .35s}html.dark body{background:#0d1019}body::before,body::after{content:"";position:fixed;inset:-15%;z-index:-1;pointer-events:none}body::before{background:radial-gradient(ellipse at 12% 8%,color-mix(in srgb,var(--wall-a) 58%,transparent),transparent 43%),radial-gradient(ellipse at 88% 12%,color-mix(in srgb,var(--wall-b) 46%,transparent),transparent 42%),radial-gradient(ellipse at 56% 90%,color-mix(in srgb,var(--wall-c) 42%,transparent),transparent 48%),radial-gradient(ellipse at 45% 35%,color-mix(in srgb,var(--wall-d) 18%,transparent),transparent 52%);filter:blur(16px);animation:ambient-shift 24s ease-in-out infinite alternate}body::after{inset:0;z-index:0;opacity:.07;mix-blend-mode:soft-light;background-image:url("data:image/svg+xml,%3Csvg viewBox=\'0 0 180 180\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.9\' numOctaves=\'3\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\' opacity=\'.22\'/%3E%3C/svg%3E")}@keyframes ambient-shift{0%{transform:translate3d(-1.5%,0,0) scale(1)}100%{transform:translate3d(1.5%,-1%,0) scale(1.04)}}@keyframes rise-in{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}@keyframes sheen{0%{background-position:180% 0}100%{background-position:-80% 0}}button,input,textarea,select{font:inherit}button{color:inherit}.wrap{position:relative;z-index:1;width:min(1240px,calc(100% - 44px));margin:0 auto;padding:16px 0 54px}.glass,.top,.prefs,.tool,.search,.filter,.history-card,.history-item,.dialog,.notice,.btn,.close{border:1px solid var(--line);background:var(--surface);backdrop-filter:blur(var(--blur)) saturate(175%);-webkit-backdrop-filter:blur(var(--blur)) saturate(175%);box-shadow:inset 0 1px 0 rgba(255,255,255,.42),0 12px 36px rgba(36,49,78,.08)}.top{position:sticky;top:12px;z-index:8;display:flex;align-items:center;gap:12px;min-height:64px;padding:9px 13px;border-radius:22px;box-shadow:inset 0 1px 0 rgba(255,255,255,.65),0 13px 38px rgba(38,50,83,.12);animation:rise-in .55s cubic-bezier(.2,.8,.2,1) both}.logo{width:42px;height:42px;flex:none;border-radius:15px;display:grid;place-items:center;background:linear-gradient(145deg,var(--acc),color-mix(in srgb,var(--acc) 45%,#c7a0ff));color:#fff;font-size:18px;font-weight:850;box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 7px 18px rgba(var(--acc-rgb),.28)}.brand{font-weight:800;letter-spacing:.1em;font-size:13px}.brand small{display:block;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.17em}.top-actions{display:flex;align-items:center;gap:8px;margin-left:auto}.top-link,.icon-button{height:38px;border:1px solid var(--line);border-radius:13px;background:var(--surface-soft);color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;font-size:12px;font-weight:650;cursor:pointer;transition:transform .25s cubic-bezier(.2,.8,.2,1),background .25s,border-color .25s,box-shadow .25s}.icon-button{width:40px;padding:0;font-size:17px}.top-link:hover,.icon-button:hover{transform:translateY(-2px);background:var(--surface-strong);border-color:rgba(var(--acc-rgb),.38);box-shadow:0 7px 18px rgba(var(--acc-rgb),.15)}.local{color:var(--muted);font-size:11px;padding:0 4px;white-space:nowrap}.prefs{position:absolute;z-index:12;top:73px;right:8px;width:min(340px,calc(100vw - 40px));padding:16px;border-radius:20px;box-shadow:var(--shadow);transform-origin:top right;animation:rise-in .2s ease-out}.prefs.hidden{display:none}.prefs-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.prefs-head strong{font-size:14px}.prefs-head span{font-size:11px;color:var(--muted)}.pref-group{padding:10px 0;border-top:1px solid var(--line)}.pref-label{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;font-size:11px;font-weight:700}.pref-label output{color:var(--muted);font-weight:500}.swatches,.wallpapers{display:flex;gap:9px;flex-wrap:wrap}.swatch{width:25px;height:25px;border:2px solid rgba(255,255,255,.72);border-radius:50%;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.16);transition:transform .2s,box-shadow .2s}.swatch:hover{transform:scale(1.16)}.swatch.active{outline:2px solid var(--ink);outline-offset:2px}.wallpick{width:47px;height:30px;border:1px solid var(--line);border-radius:10px;background:linear-gradient(135deg,var(--a),var(--b),var(--c));cursor:pointer;transition:transform .22s,box-shadow .22s}.wallpick:hover{transform:translateY(-2px) scale(1.04)}.wallpick.active{outline:2px solid var(--acc);outline-offset:2px}.range-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:5px 12px;color:var(--muted);font-size:11px}.range-row input{grid-column:1/-1;width:100%;accent-color:var(--acc)}.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;color:var(--muted);font-size:12px}.toggle-row input{accent-color:var(--acc);width:16px;height:16px}.hero{position:relative;overflow:hidden;margin:24px 0 18px;padding:34px 35px 30px;border:1px solid var(--line);border-radius:28px;background:linear-gradient(120deg,rgba(255,255,255,.45),rgba(255,255,255,.18) 54%,rgba(255,255,255,.08));backdrop-filter:blur(calc(var(--blur) * .8)) saturate(155%);-webkit-backdrop-filter:blur(calc(var(--blur) * .8)) saturate(155%);box-shadow:inset 0 1px 0 rgba(255,255,255,.62),0 18px 52px rgba(35,49,83,.09);animation:rise-in .65s .06s both}.dark .hero{background:linear-gradient(120deg,rgba(44,51,72,.62),rgba(34,38,57,.35) 54%,rgba(255,255,255,.035))}.hero::after{content:"✦";position:absolute;right:7%;top:18%;font-size:clamp(64px,11vw,142px);color:rgba(255,255,255,.22);text-shadow:0 0 50px rgba(var(--acc-rgb),.25);animation:float 7s ease-in-out infinite;pointer-events:none}.eyebrow{color:var(--acc);font-size:10px;font-weight:800;letter-spacing:.2em;text-transform:uppercase}.hero h1{max-width:760px;margin:9px 0 10px;font-size:clamp(32px,5vw,55px);line-height:1.02;letter-spacing:-.055em}.hero h1 span{color:var(--acc)}.hero p{max-width:720px;margin:0;color:var(--muted);font-size:15px}.hero b{color:var(--ink)}.controls{display:flex;align-items:center;gap:10px;margin:15px 0 20px;flex-wrap:wrap;animation:rise-in .6s .14s both}.search{height:48px;flex:1;min-width:230px;display:flex;align-items:center;gap:10px;padding:0 15px;border-radius:16px;transition:border-color .25s,box-shadow .25s,transform .25s}.search:focus-within{border-color:rgba(var(--acc-rgb),.62);box-shadow:0 0 0 4px rgba(var(--acc-rgb),.12),inset 0 1px 0 rgba(255,255,255,.56);transform:translateY(-1px)}.search>span{color:var(--acc);font-size:21px}.search input{width:100%;border:0;outline:0;background:transparent;color:var(--ink);font:inherit}.search input::placeholder{color:var(--muted)}.filters{display:flex;gap:6px;flex-wrap:wrap}.filter{height:39px;padding:0 12px;border-radius:13px;color:var(--muted);font-size:11px;font-weight:680;cursor:pointer;transition:transform .22s,background .22s,color .22s,border-color .22s}.filter:hover{transform:translateY(-2px);color:var(--ink)}.filter.active{background:rgba(var(--acc-rgb),.19);border-color:rgba(var(--acc-rgb),.35);color:var(--acc);box-shadow:inset 0 1px rgba(255,255,255,.36)}.section-title{display:flex;align-items:end;justify-content:space-between;margin:22px 2px 12px;animation:rise-in .55s .18s both}.section-title h2{margin:0;font-size:19px;letter-spacing:-.025em}.section-title span{color:var(--muted);font-size:11px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min),1fr));gap:13px}.tool{position:relative;isolation:isolate;overflow:hidden;min-height:152px;display:flex;flex-direction:column;padding:16px;border-radius:20px;color:var(--ink);text-align:left;cursor:pointer;transform:translateY(0) scale(1);transition:transform .34s cubic-bezier(.2,.85,.2,1),border-color .3s,box-shadow .3s,background .3s;animation:rise-in .56s calc(.04s + var(--i,0)*.035s) both}.tool::before{content:"";position:absolute;z-index:-1;inset:0;background:radial-gradient(260px circle at var(--mx,50%) var(--my,0%),rgba(var(--acc-rgb),.17),transparent 62%);opacity:0;transition:opacity .3s}.tool:hover::before{opacity:1}.tool:hover{transform:translateY(-5px) scale(1.012);border-color:rgba(var(--acc-rgb),.38);box-shadow:inset 0 1px rgba(255,255,255,.6),0 20px 42px rgba(32,48,87,.15)}.tool:active{transform:translateY(-1px) scale(.99)}.tool:focus-visible,.icon-button:focus-visible,.filter:focus-visible,.top-link:focus-visible{outline:3px solid rgba(var(--acc-rgb),.55);outline-offset:3px}.tool-head{display:flex;align-items:center;gap:11px}.tool-icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border:1px solid rgba(255,255,255,.5);border-radius:14px;background:linear-gradient(145deg,rgba(var(--acc-rgb),.23),rgba(var(--acc-rgb),.09));color:var(--acc);font-size:18px;font-weight:800;box-shadow:inset 0 1px rgba(255,255,255,.42),0 6px 14px rgba(var(--acc-rgb),.12);transition:transform .32s cubic-bezier(.2,.8,.2,1)}.tool:hover .tool-icon{transform:rotate(-5deg) scale(1.08)}.tool h3{margin:0;font-size:13px;letter-spacing:-.015em}.tool p{margin:11px 0 12px;color:var(--muted);font-size:11px;line-height:1.55}.tag{margin-top:auto;align-self:flex-start;padding:4px 9px;border:1px solid var(--line);border-radius:99px;background:var(--surface-soft);color:var(--muted);font-size:9px;font-weight:750;letter-spacing:.035em}.tool.featured{background:linear-gradient(145deg,rgba(var(--acc-rgb),.17),var(--surface) 62%);border-color:rgba(var(--acc-rgb),.28)}.tool.featured .tool-icon{background:linear-gradient(145deg,var(--acc),color-mix(in srgb,var(--acc) 38%,#c6a4ff));color:white}.empty{grid-column:1/-1;padding:34px;border:1px solid var(--line);border-radius:20px;background:var(--surface);color:var(--muted);text-align:center;backdrop-filter:blur(var(--blur));animation:rise-in .3s both}.history-card{margin:20px 0;padding:17px;border-radius:20px;animation:rise-in .5s .25s both}.history-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.history-heading h2{margin:0;font-size:16px}.history-heading p{margin:3px 0 0;color:var(--muted);font-size:11px}.history-clear{height:34px;padding:0 11px;border:1px solid var(--line);border-radius:11px;background:var(--surface-soft);color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:background .2s,color .2s,transform .2s}.history-clear:hover{background:rgba(var(--acc-rgb),.14);color:var(--acc);transform:translateY(-1px)}.history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}.history-item{display:block;min-width:0;padding:10px 12px;border-radius:13px;color:var(--ink);text-align:left;cursor:pointer;transition:transform .2s,border-color .2s,background .2s}.history-item:hover{transform:translateY(-2px);border-color:rgba(var(--acc-rgb),.35);background:var(--surface-strong)}.history-item b,.history-item span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-item b{font-size:11px}.history-item span,.history-empty{color:var(--muted);font-size:10px}.history-empty{padding:10px}.notice{margin:18px 0 0;padding:13px 15px;border-radius:15px;color:var(--muted);font-size:11px;line-height:1.65}.notice b{color:var(--ink)}.foot{padding-top:18px;color:var(--muted);font-size:10px;text-align:center}.modal{position:fixed;inset:0;z-index:30;display:none;place-items:center;padding:16px;background:rgba(17,23,39,.28);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}.modal.open{display:grid;animation:fade-in .18s ease-out}.dialog{width:min(580px,100%);max-height:min(86vh,760px);overflow:auto;padding:22px;border-radius:24px;background:var(--surface-strong);box-shadow:0 28px 90px rgba(12,20,42,.25);animation:rise-in .28s cubic-bezier(.2,.85,.2,1)}@keyframes fade-in{from{opacity:0}to{opacity:1}}.dialog-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.dialog h2{margin:0;font-size:22px;letter-spacing:-.035em}.dialog p{margin:6px 0 14px;color:var(--muted);font-size:12px}.close{width:36px;height:36px;border-radius:12px;background:var(--surface-soft);color:var(--muted);font-size:20px;cursor:pointer;transition:transform .2s,color .2s}.close:hover{transform:rotate(90deg);color:var(--ink)}.dialog label{display:block;margin:11px 0 5px;font-size:11px;font-weight:750}.dialog input,.dialog textarea,.dialog select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-soft);color:var(--ink);outline:0;font:13px Inter,system-ui}.dialog input:focus,.dialog textarea:focus,.dialog select:focus{border-color:rgba(var(--acc-rgb),.6);box-shadow:0 0 0 3px rgba(var(--acc-rgb),.12)}.dialog textarea{min-height:130px;resize:vertical}.dialog-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.btn{height:40px;padding:0 14px;border-radius:12px;background:var(--surface-soft);color:var(--ink);font-size:11px;font-weight:700;cursor:pointer;transition:transform .22s,background .22s,box-shadow .22s}.btn:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(25,40,75,.1)}.btn.primary{background:linear-gradient(135deg,var(--acc),color-mix(in srgb,var(--acc) 62%,#9d75ff));border-color:rgba(255,255,255,.36);color:white}.output{margin-top:10px;padding:13px;border:1px solid var(--line);border-radius:14px;background:rgba(5,12,26,.05);color:var(--ink);white-space:pre-wrap;word-break:break-word;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;max-height:290px;overflow:auto;animation:rise-in .3s both}.dark .output{background:rgba(0,0,0,.22)}.hidden{display:none!important}.result-meta{padding-top:8px;color:var(--muted);font-size:10px}.loading{position:relative;pointer-events:none;opacity:.72}.loading::after{content:"";display:inline-block;width:13px;height:13px;margin-left:8px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:800px){.wrap{width:calc(100% - 26px);padding-top:10px}.top{top:8px;min-height:58px;border-radius:18px}.local{display:none}.hero{padding:27px 22px}.hero::after{right:3%;top:27%;font-size:86px}.controls{display:grid}.filters{gap:5px}.filter{padding:0 9px}.grid{grid-template-columns:repeat(auto-fill,minmax(min(var(--card-min),100%),1fr));gap:10px}.tool{min-height:138px;padding:14px}.history-grid{grid-template-columns:1fr}.prefs{top:65px}.history-heading{align-items:flex-start}.notice{font-size:10px}}@media(max-width:480px){.wrap{width:calc(100% - 18px)}.brand{font-size:11px}.top-actions{gap:5px}.top-link{height:34px;padding:0 9px;font-size:10px}.icon-button{width:35px;height:35px}.hero{margin-top:16px;border-radius:22px}.hero h1{font-size:34px}.hero p{font-size:13px}.hero::after{font-size:65px;top:42%}.section-title{align-items:flex-start;gap:8px;flex-direction:column}.section-title span{font-size:10px}.dialog{padding:17px;border-radius:20px}}@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.glass,.top,.prefs,.tool,.search,.filter,.history-card,.history-item,.dialog,.notice,.btn,.close{background:rgba(244,247,252,.94)}html.dark .glass,html.dark .top,html.dark .prefs,html.dark .tool,html.dark .search,html.dark .filter,html.dark .history-card,html.dark .history-item,html.dark .dialog,html.dark .notice,html.dark .btn,html.dark .close{background:rgba(28,32,46,.96)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;transition-delay:0ms!important}body::before{animation:none!important}}html.reduce-motion *,html.reduce-motion *::before,html.reduce-motion *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;transition-delay:0ms!important}\n</style></head><body><main class="wrap">\n<header class="top"><div class="logo">F</div><div class="brand">FIELDKIT<small>LOOKUP DESK</small></div><div class="top-actions"><a class="top-link" href="/avatar">◎ <span>Avatar Finder</span></a><button class="icon-button" id="themeToggle" type="button" title="Hell oder dunkel" aria-label="Farbschema umschalten">☾</button><button class="icon-button" id="prefsToggle" type="button" title="Darstellung anpassen" aria-label="Anpassung öffnen" aria-expanded="false">⚙</button><span class="local">● Läuft lokal auf deinem Computer</span></div><section class="prefs hidden" id="prefs" aria-label="Darstellung anpassen"><div class="prefs-head"><strong>Darstellung</strong><span>Wird auch im Avatar Finder verwendet</span></div><div class="pref-group"><div class="pref-label">Akzentfarbe</div><div class="swatches" id="accentOptions"></div></div><div class="pref-group"><div class="pref-label">Hintergrund</div><div class="wallpapers" id="wallOptions"></div></div><div class="pref-group"><div class="pref-label"><span>Liquid-Glass-Unschärfe</span><output id="blurValue"></output></div><div class="range-row"><span>Dezent</span><span>Stark</span><input id="blurRange" type="range" min="12" max="48" step="2" aria-label="Glass-Unschärfe"></div></div><div class="pref-group"><div class="pref-label"><span>Kartengröße</span><output id="densityValue"></output></div><div class="range-row"><span>Kompakt</span><span>Groß</span><input id="densityRange" type="range" min="220" max="330" step="10" aria-label="Mindestbreite der Werkzeugkarten"></div></div><label class="toggle-row">Weniger Bewegung <input id="motionToggle" type="checkbox"></label></section></header>\n<section class="hero"><div class="eyebrow">DEIN STARTPUNKT</div><h1>Was möchtest du <span>nachschlagen?</span></h1><p>Wähle den <b>Roblox Avatar Finder</b> oder eines der 20 Lookup-Tools. Öffentliche Informationen nachschlagen, Domains prüfen oder kleine Daten-Helfer nutzen — direkt von dieser Startseite.</p></section>\n<div class="controls"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Tool suchen, z. B. DNS, IP, GitHub…" autocomplete="off"></label><div class="filters" id="filters"></div></div>\n<div class="section-title"><h2 id="gridTitle">Alle Tools</h2><span id="toolCount"></span></div><section class="grid" id="grid" aria-live="polite"></section><section class="history-card"><div class="history-heading"><div><h2>Letzte Lookups</h2><p>Die letzten Abfragen werden lokal gespeichert.</p></div><button class="history-clear" id="clearHistory">Verlauf löschen</button></div><div class="history-grid" id="history"><span class="history-empty">Noch keine Abfragen.</span></div></section>\n<p class="notice"><b>Datenschutz:</b> Lookup-Anbieter erhalten den eingegebenen Suchwert. Ergebnisse und Verlauf werden lokal gespeichert. Gib dort keine Passwörter, privaten Tokens oder fremden sensiblen Daten ein. Prüfe nur Systeme, die du selbst besitzt oder untersuchen darfst. JSON- und Base64-Helfer laufen lokal im Browser.</p>\n<div class="foot">FIELDKIT · Liquid Glass · Einstellungen werden lokal auf diesem Gerät gespeichert</div>\n</main><div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><section class="dialog"><div class="dialog-top"><div><h2 id="dialogTitle"></h2><p id="dialogDesc"></p></div><button class="close" id="close" aria-label="Schließen">×</button></div><div id="formArea"></div><div class="dialog-actions" id="actions"></div><div class="result-meta" id="resultMeta"></div><pre class="output hidden" id="output"></pre></section></div>\n<script>\n\'use strict\';\nconst $=s=>document.querySelector(s);let chosen=null,lastResult=null;const tools=[{"id":"avatar","title":"Roblox Avatar Finder","desc":"Suche Roblox-Profile, Outfits, Items, Gruppen und Spiele.","category":"Profil","kind":"internal","icon":"◎","hint":""},{"id":"rdap","title":"Domain-RDAP","desc":"Registrierungsdaten, Nameserver, Status und Registrierungsereignisse.","category":"Domain","kind":"lookup","icon":"◉","hint":"Domain, z. B. example.com"},{"id":"ip","title":"IP-Netzwerkdaten","desc":"Öffentliche IP-Adresse, Netzblock, Organisation und Land.","category":"Netzwerk","kind":"lookup","icon":"⌘","hint":"Öffentliche IP-Adresse"},{"id":"dns-a","title":"DNS A / AAAA","desc":"IPv4- und IPv6-Adressen einer Domain abfragen.","category":"Domain","kind":"lookup","icon":"↗","hint":"Domain, z. B. example.com"},{"id":"dns-txt","title":"DNS TXT","desc":"TXT-Records einer Domain auslesen, einschließlich Verifizierungsdaten.","category":"Domain","kind":"lookup","icon":"≋","hint":"Domain, z. B. example.com"},{"id":"dns-mx","title":"DNS MX","desc":"Mailserver und Prioritäten der Domain ermitteln.","category":"Domain","kind":"lookup","icon":"✉","hint":"Domain, z. B. example.com"},{"id":"spf","title":"SPF-Record","desc":"TXT-basierte SPF-Richtlinie einer Domain anzeigen.","category":"Sicherheit","kind":"lookup","icon":"✓","hint":"Domain, z. B. example.com"},{"id":"dmarc","title":"DMARC-Record","desc":"DMARC-Richtlinie und Berichtsempfänger abfragen.","category":"Sicherheit","kind":"lookup","icon":"⬡","hint":"Domain, z. B. example.com"},{"id":"ct","title":"Zertifikatstransparenz","desc":"Öffentliche TLS-Zertifikate und zugehörige Hostnamen suchen.","category":"Sicherheit","kind":"lookup","icon":"▤","hint":"Domain, z. B. example.com"},{"id":"ssl","title":"SSL Labs","desc":"Öffentliche SSL Labs-Analyse und Endpunktbewertungen abrufen.","category":"Sicherheit","kind":"lookup","icon":"🔒","hint":"Domain, z. B. example.com"},{"id":"tls-cert","title":"TLS-Zertifikat live","desc":"Zertifikat, Ablaufzeit, Protokoll und Cipher des TLS-Endpunkts prüfen.","category":"Sicherheit","kind":"lookup","icon":"⟡","hint":"Domain, z. B. example.com"},{"id":"headers","title":"HTTP-Sicherheitsheader","desc":"Vorhandene und fehlende wichtige Sicherheitsheader prüfen.","category":"Sicherheit","kind":"lookup","icon":"☷","hint":"Öffentliche HTTPS-Website"},{"id":"urlscan","title":"urlscan.io Suche","desc":"Öffentliche Scan-Ergebnisse zu Domain oder URL durchsuchen.","category":"Websuche","kind":"lookup","icon":"⌕","hint":"Domain oder URL"},{"id":"urlhaus","title":"URLhaus Reputation","desc":"Abuse.ch-Datenbank auf gemeldete Hostnamen prüfen.","category":"Sicherheit","kind":"lookup","icon":"⚑","hint":"Domain oder Hostname"},{"id":"vt","title":"VirusTotal Reputation","desc":"Domain- oder öffentliche IP-Reputation und Analyse-Statistiken mit deinem persönlichen API-Key.","category":"Sicherheit","kind":"lookup","icon":"◈","hint":"Domain oder öffentliche IP-Adresse"},{"id":"dnscheck","title":"DNS-Propagation","desc":"DNS-Antworten mehrerer öffentlicher Resolver vergleichen.","category":"Netzwerk","kind":"lookup","icon":"⟳","hint":"Domain, z. B. example.com"},{"id":"tech","title":"Technologie-Erkennung","desc":"Öffentliche Website-Header und HTML-Stichprobe heuristisch auswerten.","category":"Websuche","kind":"lookup","icon":"⌘","hint":"Öffentliche HTTPS-Website"},{"id":"archive","title":"Wayback Machine","desc":"Archivierte Snapshots und Zeitstempel einer Domain suchen.","category":"Websuche","kind":"lookup","icon":"◷","hint":"Domain, z. B. example.com"},{"id":"gh-user","title":"GitHub-Profil","desc":"Öffentliche Profil- und Repository-Kennzahlen eines GitHub-Nutzers.","category":"Profil","kind":"lookup","icon":"◉","hint":"GitHub-Nutzername"},{"id":"gh-search","title":"GitHub-Repositories","desc":"Öffentliche GitHub-Repositories nach Stichwort durchsuchen.","category":"Websuche","kind":"lookup","icon":"⌕","hint":"Suchbegriff"},{"id":"user-search","title":"GitHub-Nutzersuche","desc":"Öffentliche GitHub-Profile nach Nutzername durchsuchen.","category":"Profil","kind":"lookup","icon":"⌕","hint":"Nutzername oder Suchbegriff"},{"id":"json","title":"JSON-Formatierer","desc":"JSON lokal validieren und lesbar formatieren.","category":"Lokal","kind":"json","icon":"{}","hint":""},{"id":"base64","title":"Base64-Konverter","desc":"Text lokal in Base64 kodieren oder aus Base64 dekodieren.","category":"Code","kind":"base64","icon":"⇄","hint":""}];let categories=[\'Alle\',\'Profil\',\'Domain\',\'Netzwerk\',\'Sicherheit\',\'Code\',\'Websuche\',\'Lokal\'],active=\'Alle\';\nconst root=document.documentElement;\nconst ACCENTS=[[\'Blue\',\'#168df5\'],[\'Violett\',\'#bf5af2\'],[\'Rosa\',\'#ff4d78\'],[\'Orange\',\'#ff9f32\'],[\'Grün\',\'#30d158\'],[\'Graphit\',\'#8e8e93\']];\nconst WALLS=[[\'aurora\',\'Aurora\',[\'#548cff\',\'#e989be\',\'#46d7b2\',\'#896aff\']],[\'ocean\',\'Ocean\',[\'#1e9fff\',\'#29d4ce\',\'#6588ff\',\'#72e1ca\']],[\'sunset\',\'Sunset\',[\'#ff776d\',\'#ffb24a\',\'#e45f9a\',\'#a963e8\']],[\'sakura\',\'Sakura\',[\'#ff8eb5\',\'#bd8cff\',\'#ffcfec\',\'#788fff\']],[\'forest\',\'Forest\',[\'#42c883\',\'#8ad26b\',\'#43c7b8\',\'#b1d66d\']]];\nfunction store(key,value){try{localStorage.setItem(key,String(value))}catch{}}\nfunction setTheme(dark){root.classList.toggle(\'dark\',dark);store(\'af-theme\',dark?\'dark\':\'light\');$(\'#themeToggle\').textContent=dark?\'☀\':\'☾\';$(\'#themeToggle\').setAttribute(\'aria-label\',dark?\'Zum hellen Erscheinungsbild wechseln\':\'Zum dunklen Erscheinungsbild wechseln\')}\nfunction setAccent(hex){const rgb=hex.match(/[0-9a-f]{2}/gi).map(v=>parseInt(v,16)).join(\',\');root.style.setProperty(\'--acc\',hex);root.style.setProperty(\'--acc-rgb\',rgb);store(\'af-accent\',hex);document.querySelectorAll(\'[data-accent]\').forEach(b=>b.classList.toggle(\'active\',b.dataset.accent===hex))}\nfunction setWall(id){const wall=WALLS.find(x=>x[0]===id)||WALLS[0];root.dataset.wallpaper=wall[0];[\'a\',\'b\',\'c\',\'d\'].forEach((k,i)=>root.style.setProperty(\'--wall-\'+k,wall[2][i]));store(\'af-wallpaper\',wall[0]);document.querySelectorAll(\'[data-wall]\').forEach(b=>b.classList.toggle(\'active\',b.dataset.wall===wall[0]))}\nfunction setBlur(value){const n=Math.max(12,Math.min(48,Number(value)||28));root.style.setProperty(\'--blur\',n+\'px\');root.style.setProperty(\'--af-glass-blur\',n+\'px\');store(\'af-glass-blur\',n);$(\'#blurRange\').value=n;$(\'#blurValue\').textContent=n+\' px\'}\nfunction setDensity(value){const n=Math.max(220,Math.min(330,Number(value)||248));root.style.setProperty(\'--card-min\',n+\'px\');store(\'af-card-min\',n);$(\'#densityRange\').value=n;$(\'#densityValue\').textContent=n+\' px\'}\n$(\'#accentOptions\').innerHTML=ACCENTS.map(([name,color])=>`<button class="swatch" type="button" data-accent="${color}" title="${name}" aria-label="Akzentfarbe ${name}" style="background:${color}"></button>`).join(\'\');\n$(\'#wallOptions\').innerHTML=WALLS.map(([id,name,c])=>`<button class="wallpick" type="button" data-wall="${id}" title="${name}" aria-label="Hintergrund ${name}" style="--a:${c[0]};--b:${c[1]};--c:${c[2]}"></button>`).join(\'\');\nsetTheme(localStorage.getItem(\'af-theme\')===\'dark\');setAccent(localStorage.getItem(\'af-accent\')||\'#168df5\');setWall(localStorage.getItem(\'af-wallpaper\')||\'aurora\');setBlur(localStorage.getItem(\'af-glass-blur\')||28);setDensity(localStorage.getItem(\'af-card-min\')||248);\nconst reduceSaved=localStorage.getItem(\'af-motion\')===\'reduce\';root.classList.toggle(\'reduce-motion\',reduceSaved);$(\'#motionToggle\').checked=reduceSaved;\n$(\'#themeToggle\').addEventListener(\'click\',()=>setTheme(!root.classList.contains(\'dark\')));\n$(\'#prefsToggle\').addEventListener(\'click\',()=>{const open=$(\'#prefs\').classList.toggle(\'hidden\')===false;$(\'#prefsToggle\').setAttribute(\'aria-expanded\',String(open))});\n$(\'#prefs\').addEventListener(\'click\',e=>{const accent=e.target.closest(\'[data-accent]\'),wall=e.target.closest(\'[data-wall]\');if(accent)setAccent(accent.dataset.accent);if(wall)setWall(wall.dataset.wall)});\n$(\'#blurRange\').addEventListener(\'input\',e=>setBlur(e.target.value));$(\'#densityRange\').addEventListener(\'input\',e=>setDensity(e.target.value));\n$(\'#motionToggle\').addEventListener(\'change\',e=>{root.classList.toggle(\'reduce-motion\',e.target.checked);store(\'af-motion\',e.target.checked?\'reduce\':\'full\')});\ndocument.addEventListener(\'pointerdown\',e=>{if(!e.target.closest(\'#prefs\')&&!e.target.closest(\'#prefsToggle\')){$(\'#prefs\').classList.add(\'hidden\');$(\'#prefsToggle\').setAttribute(\'aria-expanded\',\'false\')}});\n\nconst esc=s=>String(s).replace(/[&<>"\']/g,c=>({\'&\':\'&amp;\',\'<\':\'&lt;\',\'>\':\'&gt;\',\'"\':\'&quot;\',"\'":\'&#39;\'}[c]));\nasync function api(path,options={}){const r=await fetch(path,{headers:{\'Content-Type\':\'application/json\',...(options.headers||{})},...options});let d={};try{d=await r.json()}catch{}if(!r.ok)throw Error(d.error||`Lookup fehlgeschlagen (${r.status})`);return d}\n$(\'#filters\').innerHTML=categories.map(c=>`<button class="filter${c===\'Alle\'?\' active\':\'\'}" data-filter="${c}">${c}</button>`).join(\'\');\nfunction render(){const q=$(\'#search\').value.trim().toLowerCase();const list=tools.filter(t=>(active===\'Alle\'||t.category===active)&&(!q||`${t.title} ${t.desc} ${t.category}`.toLowerCase().includes(q)));$(\'#toolCount\').textContent=`${list.length} Tool${list.length===1?\'\':\'s\'} · ${tools.filter(x=>x.kind===\'lookup\').length} öffentliche Lookups + Avatar Finder + 2 lokale Helfer` ;$(\'#gridTitle\').textContent=active===\'Alle\'?\'Alle Tools\':active;$(\'#grid\').innerHTML=list.length?list.map((t,i)=>`<button class="tool${t.kind===\'internal\'?\' featured\':\'\'}" style="--i:${i}" data-tool="${t.id}"><span class="tool-head"><span class="tool-icon">${t.icon}</span><h3>${t.title}</h3></span><p>${t.desc}</p><span class="tag">${t.kind===\'internal\'?\'FIELDKIT\':t.kind===\'lookup\'?\'Direkt in FIELDKIT\':\'Lokal im Browser\'}</span></button>`).join(\'\'):\'<div class="empty">Kein passendes Tool gefunden. Ändere den Suchbegriff oder wähle „Alle“.</div>\'}\n$(\'#grid\').addEventListener(\'pointermove\',e=>{const card=e.target.closest(\'.tool\');if(!card)return;const r=card.getBoundingClientRect();card.style.setProperty(\'--mx\',(e.clientX-r.left)+\'px\');card.style.setProperty(\'--my\',(e.clientY-r.top)+\'px\')});\n$(\'#filters\').addEventListener(\'click\',e=>{const b=e.target.closest(\'[data-filter]\');if(!b)return;active=b.dataset.filter;document.querySelectorAll(\'.filter\').forEach(x=>x.classList.toggle(\'active\',x===b));render()});$(\'#search\').addEventListener(\'input\',render);\nfunction openTool(id){const t=tools.find(x=>x.id===id);if(!t)return;if(t.kind===\'internal\'){location.href=\'/avatar\';return}chosen=t;lastResult=null;$(\'#dialogTitle\').textContent=t.title;$(\'#dialogDesc\').textContent=t.desc;$(\'#output\').classList.add(\'hidden\');$(\'#output\').textContent=\'\';$(\'#resultMeta\').textContent=\'\';const area=$(\'#formArea\'),actions=$(\'#actions\');actions.innerHTML=\'\';if(t.kind===\'lookup\'){area.innerHTML=`<label for="target">${t.hint||\'Suchwert eingeben\'}</label><input id="target" autocomplete="off" placeholder="Wert eingeben …">${t.id===\'vt\'?\'<label for="apiKey">VirusTotal API-Schlüssel (optional, nicht gespeichert)</label><input id="apiKey" type="password" autocomplete="off" placeholder="API-Schlüssel nur für diese Abfrage">\':\'\'}<p>Die Anfrage geht an den genannten Lookup-Anbieter. Resultate und Suchbegriff werden lokal im Verlauf gespeichert.</p>`;actions.innerHTML=\'<button class="btn" id="cancel">Abbrechen</button><button class="btn primary" id="run">Jetzt nachschlagen</button>\';setTimeout(()=>$(\'#target\').focus(),30)}else if(t.kind===\'json\'){area.innerHTML=\'<label for="localText">JSON einfügen (bleibt in diesem Browser)</label><textarea id="localText" placeholder="{&#10;  &quot;beispiel&quot;: true&#10;}"></textarea>\';actions.innerHTML=\'<button class="btn" id="cancel">Schließen</button><button class="btn primary" id="run">Formatieren</button>\'}else{area.innerHTML=\'<label for="localText">Text eingeben (bleibt in diesem Browser)</label><textarea id="localText" placeholder="Text eingeben …"></textarea><label for="b64Mode">Aktion</label><select id="b64Mode"><option value="encode">Text → Base64</option><option value="decode">Base64 → Text</option></select>\';actions.innerHTML=\'<button class="btn" id="cancel">Schließen</button><button class="btn primary" id="run">Umwandeln</button>\'}$(\'#modal\').classList.add(\'open\')}\nfunction showResult(result,cached=false){lastResult=result;$(\'#output\').textContent=JSON.stringify(result,null,2);$(\'#output\').classList.remove(\'hidden\');$(\'#resultMeta\').textContent=chosen?.kind!==\'lookup\'?\'Lokal im Browser · keine Daten übertragen\':cached?\'Aus lokalem Cache · Verlauf gespeichert\':\'Live-Ergebnis · Verlauf lokal gespeichert\';$(\'#actions\').innerHTML=\'<button class="btn" id="cancel">Schließen</button><button class="btn" data-copy-result="1">JSON kopieren</button><button class="btn primary" data-export-result="1">JSON herunterladen</button>\';loadHistory()}\nasync function loadHistory(){try{const data=await api(\'/lookup/history?limit=12\');const box=$(\'#history\');box.innerHTML=data.history.length?data.history.map(x=>{const t=tools.find(y=>y.id===x.tool);return `<button class="history-item" data-history="${x.id}"><b>${esc(t?.title||x.tool)}</b><span>${esc(x.query)} · ${new Date(x.created).toLocaleString(\'de-DE\')}</span></button>`}).join(\'\'):\'<span class="history-empty">Noch keine Abfragen.</span>\'}catch(e){$(\'#history\').innerHTML=\'<span class="history-empty">Verlauf gerade nicht verfügbar.</span>\'}}\n$(\'#search\').addEventListener(\'keydown\',e=>{if(e.key===\'Escape\')$(\'#search\').value=\'\'});\ndocument.addEventListener(\'click\',async e=>{const card=e.target.closest(\'[data-tool]\');if(card){openTool(card.dataset.tool);return}const hist=e.target.closest(\'[data-history]\');if(hist){try{const data=await api(\'/lookup/history/\'+hist.dataset.history);openTool(data.tool);$(\'#target\').value=data.query;showResult(data.result,true)}catch(err){alert(err.message)}return}if(e.target.id===\'clearHistory\'){if(!confirm(\'Den lokalen Lookup-Verlauf löschen?\'))return;try{await api(\'/lookup/history\',{method:\'DELETE\'});loadHistory()}catch(err){alert(err.message)}return}if(e.target.id===\'cancel\'||e.target.id===\'close\'||e.target===$(\'#modal\')){$(\'#modal\').classList.remove(\'open\');return}if(e.target.closest(\'[data-copy-result]\')&&lastResult){try{await navigator.clipboard.writeText(JSON.stringify(lastResult,null,2))}catch{alert(\'Kopieren wurde vom Browser blockiert.\')}return}if(e.target.closest(\'[data-export-result]\')&&lastResult){const url=URL.createObjectURL(new Blob([JSON.stringify(lastResult,null,2)],{type:\'application/json\'}));const a=document.createElement(\'a\');a.href=url;a.download=`fieldkit-lookup-${chosen?.id||\'result\'}-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return}if(e.target.id===\'run\'&&chosen){const runButton=e.target;runButton.disabled=true;runButton.classList.add(\'loading\');try{if(chosen.kind===\'lookup\'){const query=$(\'#target\').value.trim();if(!query)throw Error(\'Bitte einen Suchwert eingeben.\');const data=await api(\'/lookup/\'+encodeURIComponent(chosen.id),{method:\'POST\',body:JSON.stringify({query,apiKey:$(\'#apiKey\')?.value||\'\'})});showResult(data.result,data.cached)}else if(chosen.kind===\'json\'){const value=JSON.parse($(\'#localText\').value);showResult({formatted:JSON.stringify(value,null,2),valid:true,source:\'lokaler Browser\'})}else{const value=$(\'#localText\').value;if($(\'#b64Mode\').value===\'encode\')showResult({result:btoa(unescape(encodeURIComponent(value))),action:\'encode\',source:\'lokaler Browser\'});else showResult({result:decodeURIComponent(escape(atob(value.trim()))),action:\'decode\',source:\'lokaler Browser\'})}}catch(err){alert(err.message)}finally{runButton.disabled=false;runButton.classList.remove(\'loading\')}}});\n$(\'#close\').onclick=()=>$(\'#modal\').classList.remove(\'open\');addEventListener(\'keydown\',e=>{if(e.key===\'Escape\'){$(\'#modal\').classList.remove(\'open\');$(\'#prefs\').classList.add(\'hidden\');$(\'#prefsToggle\').setAttribute(\'aria-expanded\',\'false\')}});render();loadHistory();</script></body></html>'
 
 # ---------------------------------------------------------------- Server
 class H(BaseHTTPRequestHandler):
@@ -934,19 +354,8 @@ class H(BaseHTTPRequestHandler):
         try:
             path = urllib.parse.urlparse(p).path
             if path == "/health":
-                return self.jout({"ok": True, "app": "FIELDKIT", "tools": ["avatar-finder", "20-public-lookups"]})
-            if path == "/lookup/history":
-                limit = (urllib.parse.parse_qs(urllib.parse.urlparse(p).query).get("limit") or [12])[0]
-                return self.jout({"history": list_lookup_history(limit)})
-            if path.startswith("/lookup/history/"):
-                raw_id = path.rsplit("/", 1)[-1]
-                if not raw_id.isdigit():
-                    return self.jout({"error": "Ungültige Verlaufs-ID."}, 400)
-                entry = get_lookup_history(int(raw_id))
-                return self.jout(entry or {"error": "Lookup nicht gefunden."}, 404)
-            if p in ("/", "/index.html", "/test.html") or p.startswith("/?"):
-                return self.out(200, HUB_HTML.encode("utf-8"), "text/html; charset=utf-8")
-            if path == "/avatar":
+                return self.jout({"ok": True, "app": "FIELDKIT Roblox Avatar Finder", "tools": ["avatar-finder"]})
+            if path in ("/", "/index.html", "/test.html", "/avatar"):
                 return self.out(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             if p == "/favicon.ico":
                 return self.out(204, b"")
@@ -1020,21 +429,6 @@ class H(BaseHTTPRequestHandler):
             if n < 2 or n > 65536:
                 return self.jout({"error": "Die Anfrage ist leer oder zu groß."}, 413)
             raw = self.rfile.read(n) if n else b""
-            path = urllib.parse.urlparse(self.path).path
-            if path.startswith("/lookup/"):
-                tool = path.rsplit("/", 1)[-1]
-                try:
-                    payload = json.loads(raw.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    return self.jout({"error": "Ungültige JSON-Anfrage."}, 400)
-                if not isinstance(payload, dict):
-                    return self.jout({"error": "Ungültige Anfrage."}, 400)
-                if not allow_lookup_request(self.client_address[0]):
-                    return self.jout({"error": "Zu viele Lookup-Anfragen. Bitte warte eine Minute."}, 429)
-                query = str(payload.get("query", "")).strip()
-                api_key = str(payload.get("apiKey", ""))[:256]
-                result, from_cache = run_cached_lookup(tool, query, api_key)
-                return self.jout({"result": result, "cached": from_cache})
             if self.path == "/x/recent":
                 try:
                     d = json.loads(raw.decode("utf-8") or "{}")
@@ -1050,11 +444,6 @@ class H(BaseHTTPRequestHandler):
             return self.jout({"error": "nicht gefunden"}, 404)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
-        except LookupError as exc:
-            try:
-                self.jout({"error": str(exc)}, 400)
-            except Exception:
-                pass
         except Exception as exc:
             print("Fehler:", exc)
             try:
@@ -1062,12 +451,6 @@ class H(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-    def do_DELETE(self):
-        path = urllib.parse.urlparse(self.path).path
-        if path == "/lookup/history":
-            clear_lookup_history()
-            return self.jout({"ok": True})
-        return self.jout({"error": "nicht gefunden"}, 404)
 
 
 class Srv(ThreadingMixIn, HTTPServer):
@@ -1662,7 +1045,7 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
  <div class="main">
   <div class="tb" id="tb">
    <button class="iconbtn" id="sbBtn" title="Seitenleiste ein/aus"></button>
-   <a class="iconbtn" id="deskBtn" href="/" title="Zur Tool-Auswahl" aria-label="Zur Tool-Auswahl"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6"/></svg></a>
+   <a class="iconbtn" id="deskBtn" href="/" title="Avatar Finder Start" aria-label="Avatar Finder Start"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6"/></svg></a>
    <h2 id="ttl">Start</h2>
    <div class="pill" id="pill"><span class="spin"></span><input id="q" placeholder="Roblox-Name oder Benutzer-ID eingeben" autocomplete="off" spellcheck="false"><button class="go" id="go" aria-label="Suchen">Suchen</button></div><button class="iconbtn toolbar-theme" id="toolbarTheme" title="Toggle light and dark theme" aria-label="Toggle theme"></button>
   </div>
@@ -1811,7 +1194,7 @@ $('#feat').innerHTML=TABS.filter(t=>t.desc).map((t,i)=>`<div class="card fcard" 
 const MENUS={
  app:[['Über Avatar Finder',()=>showAlert('Avatar Finder','Roblox-Profile ansehen: Items, Outfits, Spiele, Gruppen und mehr.\nDie Daten kommen über deinen lokalen Server (Python) mit SQLite-Cache.')],'-',['Cache im Browser leeren',()=>{rlCache.clear();notify('Cache geleert','Der Browser-Cache ist leer.')}],['Zuletzt gesucht löschen',clearRecent]],
  file:[['Neue Suche',focusSearch,'Strg K'],'-',['ID kopieren',()=>copyText(data.userId)],['Namen kopieren',()=>copyText(data.user&&data.user.name)],['Profil auf Roblox öffnen',()=>data.userId?window.open('https://www.roblox.com/users/'+data.userId+'/profile','_blank'):notify('Kein Profil','Such zuerst einen Spieler.')],'-',['Rohdaten kopieren',()=>copyText(data.user?JSON.stringify(data.raw,null,2):'')]],
- view:[['Dunkelmodus umschalten',()=>setTheme(!document.documentElement.classList.contains('dark'))],['Seitenleiste ein/aus',()=>{win.classList.toggle('collapsed');setTimeout(moveSel,400)}],'-'].concat(ACC.map(a=>['Akzent: '+a[0],()=>setAcc(a[1])])),
+ view:[['Dunkelmodus umschalten',()=>setTheme(!document.documentElement.classList.contains('dark'))],['Seitenleiste ein/aus',()=>{win.classList.toggle('collapsed');setTimeout(moveSel,400)}],['Glass-Unschärfe ändern',cycleGlass],['Animationen reduzieren umschalten',toggleMotion],'-'].concat(ACC.map(a=>['Akzent: '+a[0],()=>setAcc(a[1])])),
  win:[['Minimieren',()=>win.classList.add('hide')],['Zoom',toggleZoom],['Zentrieren',()=>{moved=false;win.classList.remove('zoom');center()}]],
  help:[['Tastenkürzel',()=>showAlert('Tastenkürzel','Strg/⌘ + K  oder  /   →  Suche\nEsc  →  Menüs und Fenster schließen')],['Roblox API Doku',()=>window.open('https://create.roblox.com/docs/cloud/reference','_blank')]]
 };
@@ -1832,6 +1215,9 @@ $$('.mb').forEach(el=>el.addEventListener('mouseenter',()=>{if(openMenu&&openMen
 
 /* ---------- Theme / Akzent ---------- */
 function setTheme(d){document.documentElement.classList.toggle('dark',d);localStorage.setItem('af-theme',d?'dark':'light');const icon=ic(d?'sun':'moon',16);if($('#thBtn'))$('#thBtn').innerHTML=icon;if($('#toolbarTheme'))$('#toolbarTheme').innerHTML=icon}
+function setGlass(value){const n=Math.max(12,Math.min(48,Number(value)||28));document.documentElement.style.setProperty('--af-glass-blur',n+'px');localStorage.setItem('af-glass-blur',String(n));return n}
+function cycleGlass(){const values=[16,28,42],current=parseInt(localStorage.getItem('af-glass-blur')||'28',10),next=values[(values.indexOf(current)+1+values.length)%values.length];setGlass(next);notify('Glass-Effekt',`Unschärfe: ${next}px`)}
+function toggleMotion(){const reduced=!document.documentElement.classList.contains('reduce-motion');document.documentElement.classList.toggle('reduce-motion',reduced);localStorage.setItem('af-motion',reduced?'reduce':'full');notify('Bewegung',reduced?'Animationen reduziert':'Animationen aktiviert')}
 function setAcc(c){document.documentElement.style.setProperty('--acc',c);localStorage.setItem('af-accent',c);$$('.sw').forEach(s=>s.classList.toggle('on',s.dataset.c===c))}
 function setBackground(id){
  const bg=BACKGROUNDS.find(x=>x.id===id)||BACKGROUNDS[0],root=document.documentElement;
@@ -1841,7 +1227,7 @@ function setBackground(id){
  localStorage.setItem('af-wallpaper',bg.id);
  $$('.wallpick').forEach(b=>{const active=b.dataset.wall===bg.id;b.classList.toggle('on',active);b.setAttribute('aria-pressed',active?'true':'false')});
 }
-// Keep the chosen appearance and glass intensity consistent with the Lookup Desk.
+// Restore the Avatar Finder's saved appearance and accessibility settings.
 const savedGlass=Math.max(12,Math.min(48,Number(localStorage.getItem('af-glass-blur'))||28));
 document.documentElement.style.setProperty('--af-glass-blur',savedGlass+'px');
 if(localStorage.getItem('af-motion')==='reduce')document.documentElement.classList.add('reduce-motion');
@@ -2563,11 +1949,11 @@ def open_app(url, srv):
 
 # ---------------------------------------------------------------- Start
 def main():
-    parser = argparse.ArgumentParser(description="Run FIELDKIT: Roblox Avatar Finder and public lookup tools.")
+    parser = argparse.ArgumentParser(description="Run the FIELDKIT Roblox Avatar Finder.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: localhost)")
     parser.add_argument("--port", type=int, default=PORT, help="Port (default: 8765)")
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically")
-    parser.add_argument("--avatar-only", action="store_true", help="Open the Roblox Avatar Finder directly")
+    parser.add_argument("--avatar-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
         srv = Srv((args.host, args.port), H)
@@ -2575,10 +1961,8 @@ def main():
         print(f"Port {args.port} konnte nicht geöffnet werden: {exc}")
         return
     browser_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
-    route = "/avatar" if args.avatar_only else "/"
-    url = f"http://{browser_host}:{args.port}{route}"
-    print(f"FIELDKIT läuft unter {url}")
-    print("Avatar Finder" if args.avatar_only else "Startseite: Avatar Finder und 20 Lookup-Tools")
+    url = f"http://{browser_host}:{args.port}/"
+    print(f"FIELDKIT Avatar Finder läuft unter {url}")
     if not args.no_browser:
         threading.Timer(.7, webbrowser.open, [url]).start()
     try:

@@ -1,25 +1,23 @@
-# FIELDKIT
+# FIELDKIT Roblox Avatar Finder
 
-FIELDKIT startet mit einem integrierten **Lookup Desk** im animierten macOS-inspirierten Liquid-Glass-Stil. Er bewahrt den vollständigen **Roblox Avatar Finder** und bietet außerdem 20 öffentliche Lookups, die direkt in der App ausgeführt werden und ihre Ergebnisse dort anzeigen. Theme, Akzentfarbe, Hintergrund, Glass-Unschärfe und Bewegungsoptionen sind anpassbar und werden seitenübergreifend gespeichert. Zwei weitere Helfer (JSON und Base64) laufen ausschließlich lokal im Browser.
+FIELDKIT enthält nur den vollständigen **Roblox Avatar Finder**: Suche ein Profil nach Roblox-Namen oder Benutzer-ID und erkunde Avatar, Items, Outfits, Spiele, Gruppen, Favoriten und Verlauf. Die Oberfläche nutzt ein animiertes macOS-inspiriertes Liquid-Glass-Design mit anpassbarem Theme, Akzentfarbe, Wallpaper und Glass-Effekten.
+
+## Starten
 
 ```bash
 python tool_hub.py
 ```
 
-Der Browser öffnet `http://127.0.0.1:8765`. Die komplette ausführbare Anwendung – Avatar Finder, Server, Oberfläche und alle Lookup-Provider – steckt in `tool_hub.py`; außer Python wird keine weitere Laufzeitdatei oder kein Zusatzpaket benötigt.\n\nNur den Roblox Avatar Finder direkt starten:\n\n```bash\npython tool_hub.py --avatar-only\n```\n\nDadurch öffnet sich direkt `http://127.0.0.1:8765/avatar`.
+FIELDKIT öffnet sich automatisch im Browser unter `http://127.0.0.1:8765`. Die komplette Anwendung steckt in dieser einen Python-Datei und benötigt keine zusätzlichen Pakete. Lass das Terminal geöffnet, solange du die App verwendest; mit `Ctrl+C` beendest du sie.
 
-Für die Arena-/Sandbox-Vorschau:
+Für eine Sandbox-Vorschau:
 
 ```bash
 python tool_hub.py --host 0.0.0.0 --port 8002 --no-browser
 ```
 
-Die 20 Lookup-Karten decken RDAP und IP-Netzwerkdaten, DNS, Zertifikate und TLS, Sicherheitsheader, öffentliche URL-Reputationsdienste, Wayback sowie GitHub ab. Für VirusTotal ist ein eigener API-Schlüssel nötig; er wird nur für diese Anfrage übertragen. Ergebnisse können kopiert oder als JSON exportiert werden. Suchverlauf und Cache werden lokal in SQLite gespeichert. Die vollständige Funktionsliste und Hinweise zu Grenzen und Datenschutz stehen in [FEATURES.md](FEATURES.md).
-
-Öffentliche Lookup-Anbieter erhalten die eingegebenen Suchwerte. Nutze die Werkzeuge verantwortungsvoll und prüfe nur Informationen oder Systeme, auf die du zugreifen darfst. Es gibt keinen Discord Name Sniper.
-
-Die Lookup-Provider, Eingabe-/Netzwerkschutzmaßnahmen und lokalen API-Routen lassen sich mit gemockten Anbietern testen:
+## Tests
 
 ```bash
-python -m unittest -v test_lookup_tools.py
+python -m unittest -v test_avatar_finder.py
 ```
