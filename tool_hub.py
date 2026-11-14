@@ -2567,6 +2567,7 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: localhost)")
     parser.add_argument("--port", type=int, default=PORT, help="Port (default: 8765)")
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically")
+    parser.add_argument("--avatar-only", action="store_true", help="Open the Roblox Avatar Finder directly")
     args = parser.parse_args()
     try:
         srv = Srv((args.host, args.port), H)
@@ -2574,9 +2575,10 @@ def main():
         print(f"Port {args.port} konnte nicht geöffnet werden: {exc}")
         return
     browser_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
-    url = f"http://{browser_host}:{args.port}/"
+    route = "/avatar" if args.avatar_only else "/"
+    url = f"http://{browser_host}:{args.port}{route}"
     print(f"FIELDKIT läuft unter {url}")
-    print("Startseite: Avatar Finder und 20 Lookup-Tools")
+    print("Avatar Finder" if args.avatar_only else "Startseite: Avatar Finder und 20 Lookup-Tools")
     if not args.no_browser:
         threading.Timer(.7, webbrowser.open, [url]).start()
     try:

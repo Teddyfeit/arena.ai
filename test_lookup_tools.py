@@ -289,6 +289,7 @@ class LocalStateAndHttpTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(app), "--help"], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("public lookup tools", result.stdout)
+        self.assertIn("--avatar-only", result.stdout)
 
     def test_root_and_avatar_routes_and_health(self):
         code, body, headers = self.get_json("/")
