@@ -5,7 +5,7 @@ FIELDKIT startet mit einer Auswahl aus genau zwei Tools:
 1. **Roblox Avatar Finder** — Roblox-Profile nach Name oder Benutzer-ID suchen und Avatar, Items, Outfits, Spiele, Gruppen, Favoriten und Verlauf erkunden.
 2. **Username Finder** — einen Nutzernamen auf 16 öffentlichen Profilseiten prüfen, darunter GitHub, GitLab, Reddit, npm, Hacker News, Steam, Twitch, YouTube, Instagram, TikTok und X.
 
-Der Username Finder unterscheidet bestätigte Treffer, mögliche Treffer und nicht eindeutig prüfbare Seiten. Viele Plattformen blockieren automatisierte Prüfungen oder liefern keine verlässliche Auskunft; mögliche Treffer sollten manuell geöffnet werden. Es werden nur öffentliche Profilseiten geprüft, ohne Anmeldung oder Umgehung von Schutzmaßnahmen.
+Der Username Finder unterscheidet bestätigte Treffer, mögliche Treffer und nicht eindeutig prüfbare Seiten. Viele Plattformen blockieren automatisierte Prüfungen oder liefern keine verlässliche Auskunft; mögliche Treffer sollten manuell geöffnet werden. Der Prüfansatz orientiert sich an Sherlocks öffentlichen Prüfmethoden; Details und Lizenzhinweis stehen in `THIRD_PARTY_NOTICES.md`. Es werden nur öffentliche Profilseiten geprüft, ohne Anmeldung oder Umgehung von Schutzmaßnahmen.
 
 Die Oberfläche nutzt ein macOS-inspiriertes Liquid-Glass-Design mit anpassbarem Theme, Akzentfarbe, Wallpaper und Glass-Effekten.
 

@@ -89,6 +89,19 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertEqual(result, {"username": "example", "results": expected})
         search_sites.assert_called_once_with("example")
 
+    def test_username_probe_confirms_account_from_site_specific_api(self):
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self, limit=-1): return b'{"login":"Example"}'
+            def geturl(self): return "https://api.github.com/users/Example"
+        site = next(row for row in tool_hub.USERNAME_SITES if row[0] == "GitHub")
+        with patch("tool_hub.urllib.request.urlopen", return_value=Response()):
+            result = tool_hub.check_username_site(site, "example")
+        self.assertEqual(result["status"], "found")
+        self.assertEqual(result["url"], "https://github.com/example")
+
     def test_username_search_rejects_invalid_names(self):
         with patch.object(tool_hub, "search_public_username") as search_sites:
             with self.assertRaises(HTTPError) as error:

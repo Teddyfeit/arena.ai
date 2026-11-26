@@ -188,24 +188,25 @@ def log(tag, code, url):
         pass
 
 
-# Public username-profile checks. Sites that don't expose reliable account status are
-# reported as possible/unverified rather than being presented as confirmed matches.
+# Public username checks. The status/message/probe distinction follows the
+# MIT-licensed Sherlock project's published site-checking approach; this app keeps
+# a small, curated registry and treats ambiguous platform responses as unverified.
 USERNAME_SITES = [
-    ("GitHub", "https://github.com/{name}", "https://github.com/{name}", "http"),
-    ("GitLab", "https://gitlab.com/{name}", "https://gitlab.com/{name}", "http"),
-    ("Codeberg", "https://codeberg.org/{name}", "https://codeberg.org/{name}", "http"),
+    ("GitHub", "https://api.github.com/users/{name}", "https://github.com/{name}", "github_api"),
+    ("GitLab", "https://gitlab.com/api/v4/users?username={name}", "https://gitlab.com/{name}", "gitlab_api"),
+    ("Codeberg", "https://codeberg.org/api/v1/users/{name}", "https://codeberg.org/{name}", "codeberg_api"),
     ("Reddit", "https://www.reddit.com/user/{name}/about.json", "https://www.reddit.com/user/{name}/", "reddit"),
     ("npm", "https://registry.npmjs.org/-/user/org.couchdb.user:{name}", "https://www.npmjs.com/~{name}", "npm"),
     ("Hacker News", "https://hacker-news.firebaseio.com/v0/user/{name}.json", "https://news.ycombinator.com/user?id={name}", "hackernews"),
     ("Steam", "https://steamcommunity.com/id/{name}", "https://steamcommunity.com/id/{name}", "steam"),
-    ("Dev.to", "https://dev.to/{name}", "https://dev.to/{name}", "http"),
-    ("Medium", "https://medium.com/@{name}", "https://medium.com/@{name}", "possible"),
+    ("Dev.to", "https://dev.to/api/users/by_username?url={name}", "https://dev.to/{name}", "devto_api"),
+    ("Medium", "https://medium.com/feed/@{name}", "https://medium.com/@{name}", "medium"),
     ("SoundCloud", "https://soundcloud.com/{name}", "https://soundcloud.com/{name}", "possible"),
-    ("Twitch", "https://www.twitch.tv/{name}", "https://www.twitch.tv/{name}", "possible"),
+    ("Twitch", "https://www.twitch.tv/{name}", "https://www.twitch.tv/{name}", "twitch"),
     ("YouTube", "https://www.youtube.com/@{name}", "https://www.youtube.com/@{name}", "possible"),
     ("Instagram", "https://www.instagram.com/{name}/", "https://www.instagram.com/{name}/", "possible"),
-    ("TikTok", "https://www.tiktok.com/@{name}", "https://www.tiktok.com/@{name}", "possible"),
-    ("X", "https://x.com/{name}", "https://x.com/{name}", "possible"),
+    ("TikTok", "https://www.tiktok.com/@{name}", "https://www.tiktok.com/@{name}", "tiktok"),
+    ("X", "https://x.com/{name}", "https://x.com/{name}", "x"),
     ("Pinterest", "https://www.pinterest.com/{name}/", "https://www.pinterest.com/{name}/", "possible"),
 ]
 USERNAME_UA = "Mozilla/5.0 (compatible; FieldkitPublicProfileCheck/1.0)"
@@ -235,7 +236,33 @@ def check_username_site(site, username):
     if status in (404, 410):
         result = "not_found"
     elif status == 200:
-        if mode == "reddit":
+        if mode == "github_api":
+            try:
+                payload = json.loads(body)
+                result = "found" if str(payload.get("login", "")).casefold() == username.casefold() else "not_found"
+            except Exception:
+                result = "unknown"
+        elif mode == "gitlab_api":
+            try:
+                payload = json.loads(body)
+                result = "found" if any(str(row.get("username", "")).casefold() == username.casefold() for row in payload if isinstance(row, dict)) else "not_found"
+            except Exception:
+                result = "unknown"
+        elif mode == "codeberg_api":
+            try:
+                payload = json.loads(body)
+                account = payload.get("login") or payload.get("username")
+                result = "found" if isinstance(account, str) and account.casefold() == username.casefold() else "not_found"
+            except Exception:
+                result = "unknown"
+        elif mode == "devto_api":
+            try:
+                payload = json.loads(body)
+                account = payload.get("username")
+                result = "found" if isinstance(account, str) and account.casefold() == username.casefold() else "not_found"
+            except Exception:
+                result = "unknown"
+        elif mode == "reddit":
             try:
                 payload = json.loads(body)
                 author = (payload.get("data") or {}).get("name")
@@ -262,6 +289,18 @@ def check_username_site(site, username):
                 result = "found"
             else:
                 result = "possible"
+        elif mode == "medium":
+            result = "found" if "<rss" in text and "<channel" in text else "not_found" if "<body" in text else "unknown"
+        elif mode == "twitch":
+            if "twitch is the world&#39;s leading video platform" in text:
+                result = "not_found"
+            else:
+                title = re.search(r"<title[^>]*>(.*?)</title>", text, re.S)
+                result = "found" if title and username.casefold() in title.group(1).casefold() else "possible"
+        elif mode == "tiktok":
+            result = "not_found" if '"statuscode":10221' in text or '"status_code":10221' in text else "possible"
+        elif mode == "x":
+            result = "not_found" if '<div class="error-panel"><span>user ' in text else "possible"
         elif mode == "possible":
             missing_markers = ("page not found", "user not found", "profile not found", "this page doesn't exist",
                                "this account doesn't exist", "sorry, this page isn't available", "couldn't find this account")
