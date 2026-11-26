@@ -1034,6 +1034,18 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
 #t-start .fcard .ico{width:34px;height:34px;margin-bottom:10px}
 #t-start #recentBox{margin-top:20px}
 @media(max-width:520px){#t-start .tool-picker-head{padding:18px 16px}#t-start .tool-picker-head h1{font-size:30px}}
+/* Full-screen tool choice shown immediately whenever the website is opened. */
+#toolPickerGate{position:fixed;inset:0;z-index:250;display:grid;place-items:center;padding:24px;background:rgba(14,18,32,.3);backdrop-filter:blur(24px) saturate(135%);-webkit-backdrop-filter:blur(24px) saturate(135%);animation:fade .3s ease-out}
+#toolPickerGate.dismissed{display:none}
+#toolPickerGate .picker-panel{display:block;width:min(920px,100%);max-height:min(90dvh,900px);min-height:0;overflow:auto;margin:0;padding:clamp(22px,4vw,38px);border-radius:28px;background:linear-gradient(130deg,var(--glass),color-mix(in srgb,var(--glass2) 88%,transparent));border:1px solid var(--rim);box-shadow:var(--sh),inset 0 1px 0 var(--rim)}
+#toolPickerGate .picker-eyebrow{display:flex;align-items:center;gap:9px;margin-bottom:10px;color:var(--sub);font-size:10px;font-weight:800;letter-spacing:.17em}
+#toolPickerGate .picker-eyebrow i{width:8px;height:8px;border-radius:50%;background:#51e2a1;box-shadow:0 0 14px rgba(81,226,161,.8)}
+#toolPickerGate h1{font-size:clamp(28px,4vw,42px);line-height:1.05;letter-spacing:-.045em}
+#toolPickerGate .picker-intro{max-width:620px;margin:9px 0 20px;color:var(--sub);font-size:13px;line-height:1.6}
+#toolPickerCards{grid-template-columns:repeat(auto-fit,minmax(min(185px,100%),1fr));gap:12px}
+#toolPickerCards .launch-card{width:100%;min-height:130px;padding:17px;text-align:left;color:var(--txt);font:inherit;cursor:pointer;appearance:none;-webkit-appearance:none}
+#toolPickerCards .launch-card:focus-visible{outline:3px solid var(--acc);outline-offset:3px}
+@media(max-width:520px){#toolPickerGate{padding:12px}#toolPickerGate .picker-panel{padding:20px 16px;border-radius:20px}#toolPickerCards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}#toolPickerCards .launch-card{min-height:120px;padding:12px}}
 </style>
 </head>
 <body>
@@ -1089,6 +1101,15 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
    <section class="tab" id="t-groups"></section>
    <section class="tab" id="t-raw"></section>
   </div>
+ </div>
+</div>
+
+<div id="toolPickerGate" role="dialog" aria-modal="true" aria-labelledby="toolPickerTitle">
+ <div class="picker-panel hero">
+  <div class="picker-eyebrow"><i></i> ROBLOX TOOLKIT</div>
+  <h1 id="toolPickerTitle">Welches Tool möchtest du benutzen?</h1>
+  <p class="picker-intro">Wähle einen Bereich aus. Falls dafür ein Profil nötig ist, kannst du danach nach einem Roblox-Namen oder einer Benutzer-ID suchen.</p>
+  <div class="grid" id="toolPickerCards" aria-label="Roblox-Tools"></div>
  </div>
 </div>
 
@@ -1196,6 +1217,7 @@ $('#logo').innerHTML=ic('user',42);
 $('#sbBtn').innerHTML=ic('side',18);
 $('#pill').insertAdjacentHTML('afterbegin',ic('search',16));
 $('#feat').innerHTML=TABS.filter(t=>t.desc).map((t,i)=>`<div class="card fcard" data-tab="${t.id}" style="--i:${i}"><span class="ico" style="background:${t.color}">${ic(t.icon,20)}</span><b>${t.label}</b><p>${t.desc}</p></div>`).join('');
+$('#toolPickerCards').innerHTML=TABS.filter(t=>t.desc).map((t,i)=>`<button type="button" class="card fcard launch-card" data-launch-tool="${t.id}" style="--i:${i}"><span class="ico" style="background:${t.color}">${ic(t.icon,20)}</span><b>${t.label}</b><p>${t.desc}</p></button>`).join('');
 
 /* ---------- Menüleiste ---------- */
 const MENUS={
@@ -1846,7 +1868,18 @@ document.addEventListener('click',e=>{
  const cp=e.target.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return}
  const oc=e.target.closest('[data-outfit]');if(oc){openOutfit(oc.dataset.outfit);return}
  const q=e.target.closest('[data-q]');if(q){showWin();search(q.dataset.q);return}
+ const launch=e.target.closest('[data-launch-tool]');if(launch){
+  const id=launch.dataset.launchTool;
+  $('#toolPickerGate').classList.add('dismissed');showWin();
+  if(!data.user&&id!=='favorites'){
+   pendingTool=id;const label=TABS.find(t=>t.id===id)?.label||'Tool';
+   notify('Spieler benötigt','Suche oben nach einem Namen oder einer ID. Danach öffne ich „'+label+'“.');
+   focusSearch();return;
+  }
+  pendingTool=null;showTab(id);return;
+ }
  const tb=e.target.closest('[data-tab]');if(tb){
+  $('#toolPickerGate').classList.add('dismissed');
   showWin();const id=tb.dataset.tab;
   if(id==='start')pendingTool=null;
   if(!data.user&&!['start','favorites'].includes(id)){

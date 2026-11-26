@@ -91,6 +91,11 @@ class AvatarFinderTests(unittest.TestCase):
     def test_start_screen_offers_existing_roblox_tools_in_current_style(self):
         page = tool_hub.PAGE
         self.assertIn("<h1>Wähle dein Tool<br><span>für Roblox.</span></h1>", page)
+        self.assertIn('id="toolPickerGate" role="dialog" aria-modal="true"', page)
+        self.assertIn("Welches Tool möchtest du benutzen?", page)
+        self.assertIn('id="toolPickerCards"', page)
+        self.assertIn('class="card fcard launch-card" data-launch-tool="${t.id}"', page)
+        self.assertIn("$('#toolPickerGate').classList.add('dismissed')", page)
         self.assertIn("<div class=\"sec\"><span>Tool auswählen</span></div>", page)
         self.assertIn('class="hero tool-picker-head"', page)
         self.assertLess(page.index('id="feat"'), page.index('id="recentBox"'))
