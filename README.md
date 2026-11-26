@@ -1,25 +1,27 @@
 # FIELDKIT — Roblox Avatar Finder + OSINT Toolkit
 
-Beim Öffnen erscheint eine Auswahl mit genau zwei Tools:
+FIELDKIT starts with exactly two choices:
 
-1. **Roblox Avatar Finder** — Roblox-Profile per Name oder Benutzer-ID suchen und Avatar, Items, Outfits, Spiele, Gruppen, Favoriten und Verlauf erkunden.
-2. **OSINT Toolkit** — eigene Seiten unter `/osint/username`, `/osint/email` und `/osint/csint` für öffentliche Username-, E-Mail-Domain- und Domain/IP-Prüfungen.
+1. **Roblox Avatar Finder** — find Roblox profiles by username or user ID and explore public avatars, items, outfits, games, groups, favorites, and history.
+2. **OSINT Toolkit** — separate pages for username OSINT, email-domain checks, and passive cyber-intelligence.
 
-Der Username Finder prüft **44 öffentliche Profilseiten**. Bestätigte Treffer, mögliche Treffer und nicht eindeutig prüfbare Seiten werden getrennt angezeigt. Plattformen können automatisierte Prüfungen blockieren oder uneindeutige Antworten liefern; Links zu möglichen Treffern sollten manuell geöffnet werden.
+## OSINT capabilities
 
-Der E-Mail-Check prüft Format und öffentliche MX-Mailserver der Domain. Er ermittelt **nicht**, ob ein Postfach existiert oder bei Websites registriert ist, und sucht nicht in Datenlecks. CSINT wird hier als passive Cyber-/Domain-Info verstanden: öffentliche DNS- und RDAP-Daten, ohne Portscans oder Exploit-Tests. Details und Lizenzhinweis zum adaptierten Sherlock-Prüfansatz stehen in `THIRD_PARTY_NOTICES.md`.
+- **Username search (`/osint/username`)** checks **461 SFW public-profile sites** from a bundled, curated Sherlock registry plus site-specific checks. It reports found, possible, not found, or unknown; block pages and ambiguous responses remain unknown. It does not attempt login or bypass anti-bot protections.
+- **Email (`/osint/email`)** checks syntax, MX, SPF, DMARC, and a small local disposable-domain list. It does not verify mailbox existence, account registrations, or leaked credentials.
+- **Cyber OSINT (`/osint/csint`)** checks RDAP, A/AAAA/CNAME/NS/MX/TXT/CAA/SOA DNS, certificate-transparency names, and Shodan InternetDB snapshots for public IPs. These are passive public sources: no port scans, service connections, or exploit tests. Private and local IPs are not sent to external sources.
 
-Die Oberfläche nutzt ein macOS-inspiriertes Liquid-Glass-Design. Die komplette Anwendung steckt in `tool_hub.py` und benötigt keine zusätzlichen Python-Pakete.
+Some providers block automation or return ambiguous pages; results are indications, not identity proof or a security verdict. Sources and limits are described in the UI and `THIRD_PARTY_NOTICES.md`.
 
-## Starten
+## Run
 
 ```bash
 python tool_hub.py
 ```
 
-FIELDKIT öffnet sich automatisch im Browser unter `http://127.0.0.1:8765`. Lass das Terminal geöffnet, solange du die App verwendest; mit `Ctrl+C` beendest du sie.
+The single Python entry point serves the app locally (default `http://127.0.0.1:8765`). Keep the file `sherlock_sites.json` alongside `tool_hub.py`; it provides the extended public-site registry. No third-party Python packages are required.
 
-## Tests
+## Test
 
 ```bash
 python -m unittest -v test_avatar_finder.py

@@ -1,4 +1,4 @@
-# FIELDKIT — Roblox Avatar Finder + public Username Finder.
+# FIELDKIT — Roblox Avatar Finder + OSINT / passive Cyber-OSINT Toolkit.
 # Start with: python tool_hub.py
 from __future__ import annotations
 
@@ -238,9 +238,148 @@ USERNAME_SITES = [
     ("Tumblr", "https://{name}.tumblr.com/", "https://{name}.tumblr.com/", "possible"),
 ]
 USERNAME_UA = "Mozilla/5.0 (compatible; FieldkitPublicProfileCheck/1.0)"
+SHERLOCK_SITES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sherlock_sites.json")
+
+
+def load_sherlock_sites():
+    """Load the bundled, SFW Sherlock site registry; skip duplicate curated entries."""
+    try:
+        with open(SHERLOCK_SITES_FILE, encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except (OSError, ValueError):
+        raw = {}
+    existing = {row[0].casefold() for row in USERNAME_SITES}
+    catalog = []
+    for name, config in raw.items():
+        if not isinstance(config, dict) or name.casefold() in existing:
+            continue
+        probe = config.get("urlProbe") or config.get("url")
+        profile = config.get("url")
+        if not isinstance(probe, str) or not isinstance(profile, str):
+            continue
+        try:
+            probe_host = urllib.parse.urlparse(probe).hostname
+            profile_host = urllib.parse.urlparse(profile).hostname
+        except ValueError:
+            continue
+        if not probe.startswith("https://") or not profile.startswith("https://") or not probe_host or not profile_host:
+            continue
+        catalog.append({"name": name, **config})
+    return catalog
+
+
+SHERLOCK_SITES = load_sherlock_sites()
+USERNAME_SITE_CATALOG = [*USERNAME_SITES, *SHERLOCK_SITES]
+USERNAME_SITE_COUNT = len(USERNAME_SITE_CATALOG)
+
+
+def _replace_sherlock_username(value, username):
+    if isinstance(value, str):
+        return value.replace("{}", username)
+    if isinstance(value, list):
+        return [_replace_sherlock_username(item, username) for item in value]
+    if isinstance(value, dict):
+        return {key: _replace_sherlock_username(item, username) for key, item in value.items()}
+    return value
+
+
+def check_sherlock_site(site, username):
+    """Apply Sherlock's MIT-licensed manifest checks using bounded, read-only HTTP requests."""
+    name = site["name"]
+    encoded = urllib.parse.quote(username, safe="")
+    validation = site.get("regexCheck")
+    if validation:
+        try:
+            if not re.search(validation, username):
+                return {"site": name, "status": "not_found", "url": site["url"].replace("{}", encoded)}
+        except re.error:
+            return {"site": name, "status": "unknown", "url": site["url"].replace("{}", encoded)}
+    profile_url = site["url"].replace("{}", encoded)
+    probe_template = site.get("urlProbe") or site["url"]
+    probe_url = probe_template.replace("{}", encoded)
+    parsed_probe = urllib.parse.urlparse(probe_url)
+    if parsed_probe.scheme != "https" or not parsed_probe.hostname or parsed_probe.username or parsed_probe.password:
+        return {"site": name, "status": "unknown", "url": profile_url}
+    method = str(site.get("request_method", "GET")).upper()
+    if method not in ("GET", "POST"):
+        return {"site": name, "status": "unknown", "url": profile_url}
+    headers = {"User-Agent": USERNAME_UA, "Accept": "text/html,application/json;q=0.9,*/*;q=0.7"}
+    for key, value in (site.get("headers") or {}).items():
+        if isinstance(key, str) and isinstance(value, str) and key.casefold() not in ("host", "content-length", "cookie"):
+            headers[key] = value
+    payload = None
+    if method == "POST":
+        payload = json.dumps(_replace_sherlock_username(site.get("request_payload") or {}, encoded)).encode("utf-8")
+        headers.setdefault("Content-Type", "application/json")
+    request = urllib.request.Request(probe_url, data=payload, headers=headers, method=method)
+    error_types = site.get("errorType", "status_code")
+    if isinstance(error_types, str):
+        error_types = [error_types]
+    try:
+        if "response_url" in error_types:
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, response_headers, newurl):
+                    return None
+            response = urllib.request.build_opener(NoRedirect()).open(request, timeout=3.5)
+        else:
+            response = urllib.request.urlopen(request, timeout=3.5)
+        with response:
+            status, body = response.status, response.read(131072)
+            try:
+                content_type = response.headers.get("Content-Type", "")
+            except Exception:
+                content_type = ""
+    except urllib.error.HTTPError as exc:
+        status, body, content_type = exc.code, exc.read(131072), ""
+    except Exception:
+        return {"site": name, "status": "unknown", "url": profile_url}
+    text = body.decode("utf-8", "ignore")
+    lowered = text.casefold()
+    if status in (403, 429, 503) or any(marker in lowered for marker in ("captcha", "verify you are human", "cf-chl-", "challenge-platform")):
+        outcome = "unknown"
+    elif status in (404, 410):
+        outcome = "not_found"
+    elif status < 200 or status >= 500:
+        outcome = "unknown"
+    else:
+        if not error_types or any(kind not in ("status_code", "message", "response_url") for kind in error_types):
+            outcome = "unknown"
+        else:
+            error_message = site.get("errorMsg")
+            if isinstance(error_message, str):
+                error_message = [error_message]
+            message_missing = any(str(marker).casefold() in lowered for marker in (error_message or []))
+            error_codes = site.get("errorCode", [])
+            if isinstance(error_codes, int):
+                error_codes = [error_codes]
+            if status in error_codes:
+                outcome = "not_found"
+            elif "message" in error_types and error_message:
+                outcome = "not_found" if message_missing else "found" if status < 400 else "unknown"
+            elif "response_url" in error_types and status < 300:
+                outcome = "found"
+            elif "status_code" in error_types and status < 300:
+                if "json" not in content_type.casefold() and not text.lstrip().startswith(("{", "[")):
+                    outcome = "possible"
+                else:
+                    try:
+                        payload_data = json.loads(text)
+                        has_error = (isinstance(payload_data, dict) and
+                                     (bool(payload_data.get("error")) or bool(payload_data.get("errors")) or payload_data.get("success") is False))
+                        outcome = "not_found" if has_error or payload_data == [] else "found" if payload_data else "possible"
+                    except (TypeError, ValueError):
+                        outcome = "possible"
+            elif 300 <= status < 400 and "response_url" in error_types:
+                outcome = "not_found"
+            else:
+                outcome = "not_found" if status < 400 else "unknown"
+    return {"site": name, "status": outcome, "url": profile_url}
 
 
 def check_username_site(site, username):
+    if isinstance(site, dict):
+        return check_sherlock_site(site, username)
+
     label, probe_tpl, profile_tpl, mode, *site_rules = site
     error_markers = site_rules[0] if site_rules else ()
     encoded = urllib.parse.quote(username, safe="")
@@ -341,28 +480,31 @@ def check_username_site(site, username):
             result = "not_found" if '"statuscode":10221' in text or '"status_code":10221' in text else "possible"
         elif mode == "x":
             result = "not_found" if '<div class="error-panel"><span>user ' in text else "possible"
-        elif mode == "possible":
+        elif mode in ("possible", "http"):
             missing_markers = ("page not found", "user not found", "profile not found", "this page doesn't exist",
                                "this account doesn't exist", "sorry, this page isn't available", "couldn't find this account")
             result = "not_found" if any(marker in text for marker in missing_markers) else "possible"
         else:
-            missing_markers = ("page not found", "user not found", "profile not found", "this page doesn't exist")
-            result = "not_found" if any(marker in text for marker in missing_markers) else "found"
+            result = "unknown"
     return {"site": label, "status": result, "url": profile_url}
 
 
 def search_public_username(username):
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    results = [None] * len(USERNAME_SITES)
-    with ThreadPoolExecutor(max_workers=16) as pool:
-        jobs = {pool.submit(check_username_site, site, username): i for i, site in enumerate(USERNAME_SITES)}
+    catalog = USERNAME_SITE_CATALOG
+    results = [None] * len(catalog)
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        jobs = {pool.submit(check_username_site, site, username): i for i, site in enumerate(catalog)}
         for job in as_completed(jobs):
             index = jobs[job]
+            site = catalog[index]
             try:
                 results[index] = job.result()
             except Exception:
-                results[index] = {"site": USERNAME_SITES[index][0], "status": "unknown",
-                                  "url": USERNAME_SITES[index][2].format(name=urllib.parse.quote(username, safe=""))}
+                label = site[0] if isinstance(site, tuple) else site["name"]
+                template = site[2] if isinstance(site, tuple) else site["url"]
+                profile_url = template.format(name=urllib.parse.quote(username, safe="")) if isinstance(site, tuple) else template.replace("{}", urllib.parse.quote(username, safe=""))
+                results[index] = {"site": label, "status": "unknown", "url": profile_url}
     return results
 
 
@@ -370,7 +512,7 @@ DISPOSABLE_EMAIL_DOMAINS = {
     "10minutemail.com", "guerrillamail.com", "mailinator.com", "tempmail.com",
     "temp-mail.org", "yopmail.com", "getnada.com", "throwawaymail.com",
 }
-DNS_TYPES = {"A": 1, "NS": 2, "MX": 15, "AAAA": 28}
+DNS_TYPES = {"A": 1, "NS": 2, "CNAME": 5, "SOA": 6, "PTR": 12, "MX": 15, "TXT": 16, "AAAA": 28, "SRV": 33, "CAA": 257}
 
 
 def dns_records(name, record_type):
@@ -409,53 +551,148 @@ def check_email_domain(address):
         mx_status = "present" if mx else "missing"
     except Exception:
         mx, mx_status = [], "unknown"
+    try:
+        txt_records = dns_records(domain, "TXT")
+        spf = [row for row in txt_records if row.strip('"').casefold().startswith("v=spf1")]
+    except Exception:
+        spf = []
+    try:
+        dmarc = [row for row in dns_records("_dmarc." + domain, "TXT") if row.strip('"').casefold().startswith("v=dmarc1")]
+    except Exception:
+        dmarc = []
     return {"domain": domain, "mxStatus": mx_status, "mxRecords": mx,
+            "spfRecords": spf, "dmarcRecords": dmarc,
             "disposableDomain": domain in DISPOSABLE_EMAIL_DOMAINS}
 
 
+def _public_json(url, *, method="GET", payload=None, headers=None, limit=1048576, timeout=7):
+    request_headers = {"User-Agent": USERNAME_UA, "Accept": "application/json"}
+    request_headers.update(headers or {})
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=body, headers=request_headers, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read(limit))
+
+
+def _rdap_lookup(kind, target):
+    path = urllib.parse.quote(target, safe=":" if kind == "ip" else ".-")
+    payload = _public_json("https://rdap.org/%s/%s" % (kind, path), headers={"Accept": "application/rdap+json,application/json"}, limit=262144)
+    events = {str(row.get("eventAction")): row.get("eventDate") for row in payload.get("events", []) if isinstance(row, dict)}
+    result = {key: payload.get(key) for key in ("name", "handle", "country", "startAddress", "endAddress", "type", "status", "port43") if payload.get(key) is not None}
+    if events:
+        result["events"] = {key: events[key] for key in ("registration", "last changed", "expiration") if key in events}
+    if kind == "domain":
+        result["nameservers"] = [str(row.get("ldhName", "")).rstrip(".") for row in payload.get("nameservers", []) if isinstance(row, dict) and row.get("ldhName")][:16]
+        registrar = []
+        for entity in payload.get("entities", []):
+            if isinstance(entity, dict) and "registrar" in (entity.get("roles") or []):
+                vcard = entity.get("vcardArray", [])
+                if len(vcard) > 1:
+                    registrar = [str(row[3]) for row in vcard[1] if isinstance(row, list) and len(row) > 3 and row[0] == "fn"][:3]
+                break
+        if registrar:
+            result["registrar"] = registrar
+    return result
+
+
+def _certificate_transparency(domain):
+    """Passive certificate-transparency search; returns names only, not live-host claims."""
+    query = urllib.parse.urlencode({"q": "%." + domain, "output": "json"})
+    try:
+        payload = _public_json("https://crt.sh/?" + query, limit=2097152, timeout=8)
+    except Exception:
+        return []
+    names = set()
+    for certificate in payload if isinstance(payload, list) else []:
+        for value in str(certificate.get("name_value", "")).splitlines():
+            host = value.strip().lower().rstrip(".")
+            if host.startswith("*."):
+                host = host[2:]
+            if host == domain or host.endswith("." + domain):
+                names.add(host)
+    return sorted(names)[:150]
+
+
+def _shodan_internetdb(address):
+    """Read-only public InternetDB snapshot for global IPs; never scans the target."""
+    if not address.is_global:
+        return None
+    try:
+        payload = _public_json("https://internetdb.shodan.io/" + urllib.parse.quote(str(address), safe=".:"), limit=131072, timeout=6)
+    except Exception:
+        return None
+    return {key: payload.get(key) for key in ("ip", "ports", "hostnames", "cpes", "vulns", "tags") if payload.get(key)}
+
+
 def check_cyber_target(target):
-    """Return public DNS/RDAP metadata only; this does not scan ports or test exploits."""
+    """Passive cyber OSINT: RDAP, DNS, CT logs and Shodan's public InternetDB; no scans."""
     target = str(target or "").strip().rstrip(".")
-    if not target or len(target) > 253 or any(c in target for c in "/:@?#"):
+    if not target or len(target) > 253 or any(c in target for c in "/@?#"):
         raise ValueError("Gib eine Domain oder IP-Adresse ohne URL-Pfad ein.")
     try:
         address = ipaddress.ip_address(target)
-        normalized, kind = str(address), "ip"
     except ValueError:
+        address = None
+    if address is not None:
+        if not address.is_global:
+            raise ValueError("Bitte eine öffentliche IP-Adresse eingeben; private und lokale Adressen werden nicht abgefragt.")
+        normalized, kind = str(address), "ip"
+    else:
         try:
             normalized = target.encode("idna").decode("ascii").lower()
-        except UnicodeError as exc:
-            raise ValueError("Die Domain ist ungültig.") from exc
-        if "." not in normalized or any(not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", part) for part in normalized.split(".")):
-            raise ValueError("Gib eine gültige Domain oder IP-Adresse ein.")
+        except UnicodeError as idna_exc:
+            raise ValueError("Die Domain ist ungültig.") from idna_exc
+        labels = normalized.split(".")
+        if ("." not in normalized or len(normalized) > 253 or
+                any(not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label) for label in labels)):
+            raise ValueError("Gib eine gültige Domain oder öffentliche IP-Adresse ein.")
         kind = "domain"
-    url = "https://rdap.org/%s/%s" % (kind, urllib.parse.quote(normalized, safe=":" if kind == "ip" else ".-"))
     rdap = None
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": USERNAME_UA, "Accept": "application/rdap+json,application/json"})
-        with urllib.request.urlopen(req, timeout=7) as response:
-            payload = json.loads(response.read(262144))
-        events = {str(row.get("eventAction")): row.get("eventDate") for row in payload.get("events", []) if isinstance(row, dict)}
-        rdap = {key: payload.get(key) for key in ("name", "handle", "country", "startAddress", "endAddress", "type", "status") if payload.get(key) is not None}
-        if events:
-            rdap["events"] = {k: events[k] for k in ("registration", "last changed", "expiration") if k in events}
-        if kind == "domain":
-            rdap["nameservers"] = [str(row.get("ldhName", "")).rstrip(".") for row in payload.get("nameservers", []) if isinstance(row, dict) and row.get("ldhName")][:12]
+        rdap = _rdap_lookup(kind, normalized)
     except Exception:
-        rdap = None
-    records = {}
+        pass
+    records, ct_names, threat_intel = {}, [], None
     if kind == "domain":
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            jobs = {pool.submit(dns_records, normalized, rtype): rtype for rtype in ("A", "AAAA", "NS", "MX")}
-            for job, rtype in [(f, jobs[f]) for f in jobs]:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        query_types = ("A", "AAAA", "CNAME", "NS", "MX", "TXT", "CAA", "SOA")
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            jobs = {pool.submit(dns_records, normalized, record_type): record_type for record_type in query_types}
+            ct_job = pool.submit(_certificate_transparency, normalized)
+            for job, record_type in [(future, jobs[future]) for future in jobs]:
                 try:
-                    values = job.result(timeout=6)
-                    if values:
-                        records[rtype] = values[:12]
+                    answers = job.result(timeout=9)
+                    if answers:
+                        records[record_type] = answers[:20]
                 except Exception:
                     pass
-    return {"target": normalized, "kind": kind, "rdap": rdap, "dns": records}
+            try:
+                ct_names = ct_job.result(timeout=10)
+            except Exception:
+                pass
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            intel_job = pool.submit(_shodan_internetdb, address)
+            ptr_job = pool.submit(dns_records, address.reverse_pointer, "PTR")
+            try:
+                threat_intel = intel_job.result(timeout=7)
+            except Exception:
+                pass
+            try:
+                ptr = ptr_job.result(timeout=6)
+                if ptr:
+                    records["PTR"] = ptr[:8]
+            except Exception:
+                pass
+    source_links = {"RDAP": "https://rdap.org/%s/%s" % (kind, urllib.parse.quote(normalized, safe=":" if kind == "ip" else ".-"))}
+    if kind == "domain":
+        source_links["Certificate Transparency"] = "https://crt.sh/?" + urllib.parse.urlencode({"q": "%." + normalized})
+    else:
+        source_links["Shodan InternetDB"] = "https://internetdb.shodan.io/" + urllib.parse.quote(normalized, safe=".:")
+    return {"target": normalized, "kind": kind, "rdap": rdap, "dns": records,
+            "certificateNames": ct_names, "threatIntel": threat_intel, "sources": source_links,
+            "scope": "Passive public data only; no port scan or active probing."}
 
 
 # ---------------------------------------------------------------- Bilder
@@ -624,7 +861,7 @@ class H(BaseHTTPRequestHandler):
         try:
             path = urllib.parse.urlparse(p).path
             if path == "/health":
-                return self.jout({"ok": True, "app": "FIELDKIT Avatar Finder + OSINT Toolkit", "tools": ["avatar-finder", "osint-toolkit"]})
+                return self.jout({"ok": True, "app": "FIELDKIT Avatar Finder + OSINT Toolkit", "tools": ["avatar-finder", "osint-toolkit"], "usernameSites": USERNAME_SITE_COUNT})
             if path in ("/", "/index.html", "/test.html", "/avatar", "/avatar-finder", "/osint", "/osint/username", "/osint/email", "/osint/csint", "/email-lookup", "/cyber-lookup", "/username-finder"):
                 return self.out(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             if p == "/favicon.ico":
@@ -1436,7 +1673,7 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
   </nav>
   <main class="username-content">
    <section id="usernamePanel" class="osint-panel">
-    <section class="username-hero"><div class="eyebrow">PUBLIC PROFILE SEARCH</div><h1>Username auf 44 Websites suchen</h1><p>Gib einen Nutzernamen ein. Der Finder prüft öffentliche Profilseiten und unterscheidet bestätigte, mögliche und nicht eindeutig prüfbare Treffer.</p>
+    <section class="username-hero"><div class="eyebrow">PUBLIC PROFILE SEARCH</div><h1>Username auf __USERNAME_SITE_COUNT__ Websites suchen</h1><p>Gib einen Nutzernamen ein. Der Finder prüft öffentliche Profilseiten und unterscheidet bestätigte, mögliche und nicht eindeutig prüfbare Treffer.</p>
      <form class="username-search-form" id="usernameSearchForm"><input id="usernameQuery" name="username" maxlength="30" autocomplete="off" spellcheck="false" placeholder="Nutzernamen eingeben, z. B. builderman" aria-label="Nutzernamen"><button type="submit" id="usernameSearchButton">Suchen</button></form>
     </section>
     <div id="usernameSearchStatus" aria-live="polite"></div><section id="usernameSearchResults" aria-live="polite"></section>
@@ -1449,10 +1686,10 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
     <p class="username-note">Nur die Domain wird an einen öffentlichen DNS-over-HTTPS-Resolver gesendet. Die vollständige E-Mail-Adresse wird nicht gespeichert und nicht an Registrierungs- oder Datenleck-Datenbanken geschickt.</p>
    </section>
    <section id="csintPanel" class="osint-panel" hidden>
-    <section class="username-hero"><div class="eyebrow">CYBER SECURITY INTELLIGENCE</div><h1>Öffentliche Domain- und IP-Infos</h1><p>Ruft öffentliche DNS- und RDAP-Registrierungsdaten ab. Das ist passive Recherche – kein Portscan, kein Exploit-Test und keine Aussage, dass ein Ziel sicher oder schädlich ist.</p>
+    <section class="username-hero"><div class="eyebrow">CYBER SECURITY INTELLIGENCE</div><h1>Cyber-OSINT & Threat Intel</h1><p>Verknüpft passive DNS-/RDAP-Daten, Zertifikatstransparenz (CT) und öffentliche Shodan-InternetDB-Daten für öffentliche IPs. Kein Portscan oder aktives Testen.</p>
      <form class="username-search-form" id="cyberCheckForm"><input id="cyberCheckInput" maxlength="253" autocomplete="off" spellcheck="false" placeholder="example.com oder öffentliche IP-Adresse" aria-label="Domain oder IP-Adresse"><button type="submit" id="cyberCheckButton">Nachschlagen</button></form>
     </section><div id="cyberCheckStatus" aria-live="polite"></div><section id="cyberCheckResults"></section>
-    <p class="username-note">CSINT wird hier als Cyber Security Intelligence verstanden: passive öffentliche DNS-/RDAP-Daten. Es werden keine Systeme gescannt oder angegriffen.</p>
+    <p class="username-note">Die Quellen zeigen historische bzw. veröffentlichte Beobachtungen und beweisen keine aktuelle Erreichbarkeit oder Schwachstelle. Private IPs werden nicht an externe Quellen gesendet; es finden keine aktiven Scans statt.</p>
    </section>
   </main>
  </div>
@@ -2237,7 +2474,7 @@ async function runUsernameSearch(){
  const name=$('#usernameQuery').value.trim().replace(/^@/,'');
  if(!/^[A-Za-z0-9_.-]{1,30}$/.test(name)){$('#usernameSearchStatus').textContent='Bitte gib einen gültigen Nutzernamen ein (1–30 Buchstaben, Zahlen, Punkt, Unterstrich oder Bindestrich).';return}
  const button=$('#usernameSearchButton');button.disabled=true;button.textContent='Prüfe …';
- $('#usernameSearchStatus').textContent=`Prüfe öffentliche Profile für „${name}“…`;
+ $('#usernameSearchStatus').textContent=`Prüfe „${name}“ auf __USERNAME_SITE_COUNT__ öffentlichen Profilseiten. Je nach Antwortzeiten kann das etwas dauern …`;
  $('#usernameSearchResults').innerHTML='';
  try{const response=await fetch('/x/username-search?name='+encodeURIComponent(name));const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Suche fehlgeschlagen');renderUsernameResults(payload)}
  catch(e){$('#usernameSearchStatus').textContent=e.message||'Die Websites konnten gerade nicht geprüft werden.'}
@@ -2251,7 +2488,7 @@ async function runEmailCheck(){
   const response=await fetch('/x/email-check?email='+encodeURIComponent(value));const result=await response.json();if(!response.ok)throw new Error(result.error||'Prüfung fehlgeschlagen');
   const mx=result.mxStatus==='present'?'MX-Mailserver gefunden':result.mxStatus==='missing'?'Kein MX-Mailserver gefunden':'MX-Status nicht eindeutig';
   $('#emailCheckStatus').textContent=`Domain ${result.domain}: ${mx}.`;
-  const rows=[['Domain',result.domain],['MX-Status',mx],['MX-Einträge',(result.mxRecords||[]).join(', ')||'Keine bestätigt'],['Wegwerf-Maildomain',result.disposableDomain?'Treffer in lokaler Liste':'Nicht in der lokalen Liste erkannt']];
+  const rows=[['Domain',result.domain],['MX-Status',mx],['MX-Einträge',(result.mxRecords||[]).join(', ')||'Keine bestätigt'],['SPF', (result.spfRecords||[]).join(' · ')||'Kein SPF-Eintrag gefunden'],['DMARC', (result.dmarcRecords||[]).join(' · ')||'Kein DMARC-Eintrag gefunden'],['Wegwerf-Maildomain',result.disposableDomain?'Treffer in lokaler Liste':'Nicht in der lokalen Liste erkannt']];
   $('#emailCheckResults').innerHTML=`<div class="lookup-data">${rows.map(([k,v])=>`<div class="card"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}</div>`;
  }catch(error){$('#emailCheckStatus').textContent=error.message||'Die Prüfung ist fehlgeschlagen.'}
  finally{button.disabled=false;button.textContent='Prüfen'}
@@ -2265,8 +2502,14 @@ async function runCyberCheck(){
   $('#cyberCheckStatus').textContent=`Öffentliche Daten für ${result.target} (${result.kind})`;
   const rows=[];if(result.rdap)Object.entries(result.rdap).forEach(([k,v])=>rows.push([`RDAP · ${k}`,Array.isArray(v)?v.join(', '):typeof v==='object'?JSON.stringify(v):String(v)]));
   Object.entries(result.dns||{}).forEach(([k,v])=>rows.push([`DNS · ${k}`,v.join(', ')]));
+  if(result.certificateNames?.length)rows.push(['Certificate Transparency · bekannte Namen',result.certificateNames.join(', ')]);
+  if(result.kind==='domain')rows.push(['Certificate Transparency',result.certificateNames?.length?`${result.certificateNames.length} unterschiedliche Namen aus Zertifikaten`:'Keine Namen erhalten; das ist kein Beweis, dass keine Zertifikate existieren.']);
+  if(result.threatIntel)Object.entries(result.threatIntel).forEach(([k,v])=>rows.push([`Shodan InternetDB · ${k}`,Array.isArray(v)?v.join(', '):String(v)]));
+  else if(result.kind==='ip')rows.push(['Shodan InternetDB','Keine öffentlichen Datensätze gefunden oder Quelle nicht verfügbar.']);
+  rows.push(['Arbeitsweise',result.scope||'Nur passive, öffentlich verfügbare Daten.']);
   if(!rows.length)rows.push(['Ergebnis','Keine öffentlichen RDAP- oder DNS-Daten erhalten.']);
-  $('#cyberCheckResults').innerHTML=`<div class="lookup-data">${rows.map(([k,v])=>`<div class="card"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}</div>`;
+  const links=Object.entries(result.sources||{}).map(([name,url])=>`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(name)} ↗</a>`).join(' · ');
+  $('#cyberCheckResults').innerHTML=`<div class="lookup-data">${rows.map(([k,v])=>`<div class="card"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}</div><p class="username-note">Quellen: ${links||'öffentliche Datenquellen'} · Historische Threat-Intel-/Zertifikatsdaten sind kein Nachweis aktueller Erreichbarkeit.</p>`;
  }catch(error){$('#cyberCheckStatus').textContent=error.message||'Die Abfrage ist fehlgeschlagen.'}
  finally{button.disabled=false;button.textContent='Nachschlagen'}
 }
@@ -2361,7 +2604,7 @@ if(location.protocol==='file:')setTimeout(()=>showAlert("So geht's nicht",'Bitte
 </body>
 </html>
 """
-
+PAGE = PAGE.replace("__USERNAME_SITE_COUNT__", str(USERNAME_SITE_COUNT))
 
 
 # ---------------------------------------------------------------- App-Fenster

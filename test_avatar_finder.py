@@ -80,6 +80,7 @@ class AvatarFinderTests(unittest.TestCase):
             info = json.loads(response.read())
         self.assertEqual(info["app"], "FIELDKIT Avatar Finder + OSINT Toolkit")
         self.assertEqual(info["tools"], ["avatar-finder", "osint-toolkit"])
+        self.assertGreaterEqual(info["usernameSites"], 400)
 
     def test_username_search_returns_public_site_results(self):
         expected = [{"site": "GitHub", "status": "found", "url": "https://github.com/example"}]
@@ -102,6 +103,49 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertEqual(result["status"], "found")
         self.assertEqual(result["url"], "https://github.com/example")
 
+    def test_sherlock_catalog_is_bundled_sfw_and_expands_search(self):
+        self.assertGreaterEqual(tool_hub.USERNAME_SITE_COUNT, 400)
+        self.assertTrue(tool_hub.SHERLOCK_SITES)
+        self.assertTrue(all(not site.get("isNSFW") for site in tool_hub.SHERLOCK_SITES))
+        self.assertIn(f"Username auf {tool_hub.USERNAME_SITE_COUNT} Websites suchen", tool_hub.PAGE)
+
+    def test_sherlock_manifest_probe_uses_site_specific_message_rule(self):
+        site = {"name": "Example", "url": "https://example.com/u/{}", "urlProbe": "https://example.com/api/{}", "errorType": "message", "errorMsg": "User not found"}
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self, limit=-1): return b'{"profile":"ok"}'
+            def geturl(self): return "https://example.com/api/Alice"
+        with patch("tool_hub.urllib.request.urlopen", return_value=Response()):
+            result = tool_hub.check_sherlock_site(site, "Alice")
+        self.assertEqual(result, {"site": "Example", "status": "found", "url": "https://example.com/u/Alice"})
+
+    def test_sherlock_html_200_is_possible_not_false_confirmation(self):
+        site = {"name": "Example", "url": "https://example.com/u/{}", "errorType": "status_code"}
+        class Response:
+            status = 200
+            headers = {"Content-Type": "text/html"}
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self, limit=-1): return b'<html>generic page</html>'
+            def geturl(self): return "https://example.com/u/Alice"
+        with patch("tool_hub.urllib.request.urlopen", return_value=Response()):
+            result = tool_hub.check_sherlock_site(site, "Alice")
+        self.assertEqual(result["status"], "possible")
+
+    def test_sherlock_manifest_treats_waf_as_unknown(self):
+        site = {"name": "Example", "url": "https://example.com/u/{}", "errorType": "status_code"}
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self, limit=-1): return b'<html>please complete the CAPTCHA</html>'
+            def geturl(self): return "https://example.com/u/Alice"
+        with patch("tool_hub.urllib.request.urlopen", return_value=Response()):
+            result = tool_hub.check_sherlock_site(site, "Alice")
+        self.assertEqual(result["status"], "unknown")
+
     def test_username_search_rejects_invalid_names(self):
         with patch.object(tool_hub, "search_public_username") as search_sites:
             with self.assertRaises(HTTPError) as error:
@@ -117,12 +161,18 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertEqual(result, expected)
         check.assert_called_once_with("user@example.com")
 
-    def test_email_domain_checker_validates_and_queries_mx_only(self):
-        with patch.object(tool_hub, "dns_records", return_value=["10 mail.example.com"]) as dns:
+    def test_email_domain_checker_checks_mx_spf_and_dmarc(self):
+        def records(name, record_type):
+            return {("example.com", "MX"): ["10 mail.example.com"],
+                    ("example.com", "TXT"): ['"v=spf1 -all"'],
+                    ("_dmarc.example.com", "TXT"): ['"v=DMARC1; p=reject"']}[(name, record_type)]
+        with patch("tool_hub.dns_records", side_effect=records) as dns:
             result = tool_hub.check_email_domain("user@example.com")
         self.assertEqual(result["mxStatus"], "present")
         self.assertEqual(result["domain"], "example.com")
-        dns.assert_called_once_with("example.com", "MX")
+        self.assertTrue(result["spfRecords"])
+        self.assertTrue(result["dmarcRecords"])
+        self.assertEqual(dns.call_count, 3)
 
     def test_email_check_rejects_invalid_input(self):
         with patch.object(tool_hub, "check_email_domain", side_effect=ValueError("invalid email")) as check:
@@ -138,6 +188,23 @@ class AvatarFinderTests(unittest.TestCase):
                 result = json.loads(response.read())
         self.assertEqual(result, expected)
         check.assert_called_once_with("example.com")
+
+    def test_cyber_osint_aggregates_passive_sources_without_scanning(self):
+        with patch.object(tool_hub, "_rdap_lookup", return_value={"name": "EXAMPLE.COM"}), \
+             patch.object(tool_hub, "dns_records", return_value=["203.0.113.10"]), \
+             patch.object(tool_hub, "_certificate_transparency", return_value=["www.example.com"]):
+            result = tool_hub.check_cyber_target("example.com")
+        self.assertEqual(result["kind"], "domain")
+        self.assertEqual(result["rdap"]["name"], "EXAMPLE.COM")
+        self.assertIn("www.example.com", result["certificateNames"])
+        self.assertIn("Certificate Transparency", result["sources"])
+        self.assertIn("no port scan", result["scope"])
+
+    def test_cyber_osint_rejects_private_ips_before_external_requests(self):
+        with patch("tool_hub.urllib.request.urlopen") as request:
+            with self.assertRaises(ValueError):
+                tool_hub.check_cyber_target("192.168.1.10")
+        request.assert_not_called()
 
     def test_avatar_design_and_preferences_remain_in_page(self):
         page = tool_hub.PAGE

@@ -1,8 +1,10 @@
 # Third-party notices
 
-The Username Finder's site-checking approach is informed by the public `sherlock-project/sherlock` project and its published site-verification conventions (status-code, response/message and site-specific probe checks): https://github.com/sherlock-project/sherlock
+## Sherlock Project — site registry and checking conventions
 
-The Sherlock project is distributed under the MIT License. This application does not bundle Sherlock's program code; it implements a small, independent checker using a curated list of public profile endpoints. The Sherlock license is reproduced here for attribution:
+FIELDKIT bundles a modified copy of Sherlock's public site registry from [`sherlock-project/sherlock`](https://github.com/sherlock-project/sherlock), specifically [`sherlock_project/resources/data.json`](https://github.com/sherlock-project/sherlock/blob/c588d7c8b476df9f9c84912a05d1430fb8cdcdae/sherlock_project/resources/data.json) at commit `c588d7c8b476df9f9c84912a05d1430fb8cdcdae`. The bundled `sherlock_sites.json` retains 462 safe-for-work site definitions and omits entries marked NSFW. The application adds its own curated site checks and implements a compatible subset of the manifest's `status_code`, `message`, and `response_url` rules; Sherlock's Python application code is not bundled.
+
+Sherlock is distributed under the MIT License. Its copyright and license notice are reproduced below:
 
 ```text
 MIT License
