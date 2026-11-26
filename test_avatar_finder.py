@@ -98,6 +98,9 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertIn("#t-start #feat{grid-template-columns", page)
         self.assertIn("TABS.filter(t=>t.desc).map", page)
         self.assertIn("class=\"card fcard\" data-tab=\"${t.id}\"", page)
+        self.assertIn("pendingTool=id", page)
+        self.assertIn("const destination=pendingTool||'profil'", page)
+        self.assertIn("Danach öffne ich „'+label+'“", page)
         for tool in ("Profil", "Favoriten", "Outfits", "Spiele", "Getragene Items", "Gruppen", "Technische Daten"):
             with self.subTest(tool=tool):
                 self.assertIn(f"label:'{tool}'", page)

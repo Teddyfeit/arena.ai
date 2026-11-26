@@ -1062,7 +1062,7 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
      <div class="hero-copy">
       <div class="hero-eyebrow"><i></i> ROBLOX TOOLKIT</div>
       <h1>Wähle dein Tool<br><span>für Roblox.</span></h1>
-      <p>Wähle unten einen Bereich aus oder suche oben zuerst nach einem Roblox-Namen oder einer Benutzer-ID. Für öffentliche Profildaten brauchst du kein Konto.</p>
+      <p>Wähle ein Tool aus. Wenn es ein Profil braucht, suche im nächsten Schritt oben nach einem Roblox-Namen oder einer Benutzer-ID. Dafür brauchst du kein Konto.</p>
       <div class="quick"><button class="qb" data-q="Roblox">Roblox</button><button class="qb" data-q="builderman">builderman</button><button class="qb" data-q="1">ID 1</button></div>
       <div class="hero-caption"><span class="hero-spark">✦</span> So geht’s: Name eingeben → Suchen klicken → Profil ansehen</div>
      </div>
@@ -1300,7 +1300,7 @@ $('#tb').addEventListener('dblclick',e=>{if(!e.target.closest('input,button,.pil
 addEventListener('resize',()=>{if(innerWidth>760)setSidebarWidth(localStorage.getItem('af-sidebar-width')||getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')||178,false);center();moveSel()});
 
 /* ---------- Tabs ---------- */
-let cur='start';
+let cur='start',pendingTool=null;
 function moveSel(){const a=$('.ni.act'),s=$('#sel');if(a&&s){s.style.transform='translateY('+a.offsetTop+'px)';s.style.height=a.offsetHeight+'px'}}
 function setCurrentTab(id){
  cur=id;
@@ -1737,7 +1737,8 @@ async function loadAll(id,tok){
  closeSheet();
  const uid=String(user.id),D=newData(),E=D.extra,ok=()=>tok===searchToken,upd=()=>{if(ok())updExtra()};
  D.userId=uid;D.user=user;D.raw={user,extra:E};data=D;
- renderAll();showTab('profil');
+ const destination=pendingTool||'profil';pendingTool=null;
+ renderAll();showTab(destination);
 
  // Outfits zuerst (Server liefert Liste + Bilder in einem Rutsch)
  const runOutfits=(retry)=>{
@@ -1845,7 +1846,17 @@ document.addEventListener('click',e=>{
  const cp=e.target.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return}
  const oc=e.target.closest('[data-outfit]');if(oc){openOutfit(oc.dataset.outfit);return}
  const q=e.target.closest('[data-q]');if(q){showWin();search(q.dataset.q);return}
- const tb=e.target.closest('[data-tab]');if(tb){showWin();showTab(tb.dataset.tab);return}
+ const tb=e.target.closest('[data-tab]');if(tb){
+  showWin();const id=tb.dataset.tab;
+  if(id==='start')pendingTool=null;
+  if(!data.user&&!['start','favorites'].includes(id)){
+   pendingTool=id;
+   const label=TABS.find(t=>t.id===id)?.label||'Tool';
+   notify('Spieler benötigt','Suche oben nach einem Namen oder einer ID. Danach öffne ich „'+label+'“.');
+   focusSearch();return;
+  }
+  showTab(id);return;
+ }
 });
 document.addEventListener('input',e=>{const f=e.target.closest('[data-collection-filter]');if(!f)return;const key=f.dataset.collectionFilter;collectionPrefs[key].query=f.value;applyCollectionTools(key)});
 document.addEventListener('change',e=>{const s=e.target.closest('[data-collection-sort]');if(!s)return;const key=s.dataset.collectionSort;collectionPrefs[key].sort=s.value;applyCollectionTools(key)});
