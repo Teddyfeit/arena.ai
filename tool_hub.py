@@ -1047,9 +1047,9 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
    <section class="tab show" id="t-start">
     <div class="hero">
      <div class="hero-copy">
-      <div class="hero-eyebrow"><i></i> ROBLOX PROFILE EXPLORER</div>
-      <h1>Roblox-Profil finden<br><span>ganz einfach.</span></h1>
-      <p>Gib oben einen Roblox-Namen oder eine Benutzer-ID ein und klicke auf „Suchen“. Du brauchst kein Konto und musst dich nirgends anmelden.</p>
+      <div class="hero-eyebrow"><i></i> ROBLOX TOOLKIT</div>
+      <h1>Wähle dein Tool<br><span>für Roblox.</span></h1>
+      <p>Wähle unten einen Bereich aus oder suche oben zuerst nach einem Roblox-Namen oder einer Benutzer-ID. Für öffentliche Profildaten brauchst du kein Konto.</p>
       <div class="quick"><button class="qb" data-q="Roblox">Roblox</button><button class="qb" data-q="builderman">builderman</button><button class="qb" data-q="1">ID 1</button></div>
       <div class="hero-caption"><span class="hero-spark">✦</span> So geht’s: Name eingeben → Suchen klicken → Profil ansehen</div>
      </div>
@@ -1065,8 +1065,8 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
      <div class="sec"><span>Zuletzt gesucht</span><button class="lnkbtn" id="recClear">Löschen</button></div>
      <div class="rec" id="recentList"></div>
     </div>
-    <div class="sec"><span>Was du hier findest</span></div>
-    <div class="grid w" id="feat"></div>
+    <div class="sec"><span>Tool auswählen</span></div>
+    <div class="grid w" id="feat" aria-label="Roblox-Tools auswählen"></div>
    </section>
    <section class="tab" id="t-profil"></section>
    <section class="tab" id="t-favorites"></section>
@@ -1117,13 +1117,13 @@ const ic=(n,s=20)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="no
 
 const TABS=[
  {id:'start',label:'Startseite',icon:'home',color:'#308cff',desc:''},
- {id:'profil',label:'Profil',icon:'user',color:'#b55bfa',desc:'Hier siehst du Bild, Status, Freunde und weitere öffentliche Profilinfos.'},
- {id:'favorites',label:'Favoriten',icon:'star',color:'#ff4d78',badge:'cFavorites',desc:''},
- {id:'outfits',label:'Outfits',icon:'layers',color:'#ff4d78',badge:'cOutfits',desc:'Gespeicherte Outfits ansehen. Klicke ein Outfit an, um die Kleidung zu öffnen.'},
- {id:'games',label:'Spiele',icon:'game',color:'#ff9f32',desc:'Öffentliche Roblox-Spiele dieses Spielers ansehen.'},
- {id:'items',label:'Getragene Items',icon:'shirt',color:'#21bed0',badge:'cItems',desc:'Kleidung und Accessoires ansehen, die der Avatar gerade trägt.'},
- {id:'groups',label:'Gruppen',icon:'group',color:'#438fff',badge:'cGroups',desc:'Öffentliche Gruppen und Rollen dieses Spielers ansehen.'},
- {id:'raw',label:'Technische Daten',icon:'code',color:'#8e909f',desc:''}
+ {id:'profil',label:'Profil',icon:'user',color:'#b55bfa',desc:'Öffentliche Profildaten, Avatar und Status eines Spielers ansehen.'},
+ {id:'favorites',label:'Favoriten',icon:'star',color:'#ff4d78',badge:'cFavorites',desc:'Gespeicherte Roblox-Profile schnell wiederfinden und öffnen.'},
+ {id:'outfits',label:'Outfits',icon:'layers',color:'#ff4d78',badge:'cOutfits',desc:'Öffentliche Outfits ansehen und ihre enthaltenen Items öffnen.'},
+ {id:'games',label:'Spiele',icon:'game',color:'#ff9f32',desc:'Öffentliche Roblox-Spiele und Statistiken erkunden.'},
+ {id:'items',label:'Getragene Items',icon:'shirt',color:'#21bed0',badge:'cItems',desc:'Kleidung und Accessoires des aktuellen Avatars durchstöbern.'},
+ {id:'groups',label:'Gruppen',icon:'group',color:'#438fff',badge:'cGroups',desc:'Gruppen, Rollen und Mitgliederzahlen ansehen.'},
+ {id:'raw',label:'Technische Daten',icon:'code',color:'#8e909f',desc:'Die verfügbaren Profildaten als JSON ansehen und kopieren.'}
 ];
 const ACC=[['Blue','#168df5'],['Violett','#bf5af2'],['Rosa','#ff4d78'],['Orange','#ff9f32'],['Grün','#30d158'],['Graphit','#8e8e93']];
 const BACKGROUNDS=[

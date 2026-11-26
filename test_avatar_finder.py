@@ -88,6 +88,16 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertIn("cycleGlass", page)
         self.assertIn("toggleMotion", page)
 
+    def test_start_screen_offers_existing_roblox_tools_in_current_style(self):
+        page = tool_hub.PAGE
+        self.assertIn("<h1>Wähle dein Tool<br><span>für Roblox.</span></h1>", page)
+        self.assertIn("<div class=\"sec\"><span>Tool auswählen</span></div>", page)
+        self.assertIn("TABS.filter(t=>t.desc).map", page)
+        self.assertIn("class=\"card fcard\" data-tab=\"${t.id}\"", page)
+        for tool in ("Profil", "Favoriten", "Outfits", "Spiele", "Getragene Items", "Gruppen", "Technische Daten"):
+            with self.subTest(tool=tool):
+                self.assertIn(f"label:'{tool}'", page)
+
     def test_sections_are_stacked_and_sidebar_scrolls_without_wheel_paging(self):
         page = tool_hub.PAGE
         sections = ("start", "profil", "favorites", "items", "outfits", "games", "groups", "raw")
