@@ -2,7 +2,7 @@
 # Start with: python tool_hub.py
 from __future__ import annotations
 
-import argparse, os, sys, json, re, time, sqlite3, threading, webbrowser, subprocess
+import argparse, os, sys, json, re, time, sqlite3, threading, webbrowser, subprocess, ipaddress
 import urllib.request, urllib.error, urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -208,12 +208,41 @@ USERNAME_SITES = [
     ("TikTok", "https://www.tiktok.com/@{name}", "https://www.tiktok.com/@{name}", "tiktok"),
     ("X", "https://x.com/{name}", "https://x.com/{name}", "x"),
     ("Pinterest", "https://www.pinterest.com/{name}/", "https://www.pinterest.com/{name}/", "possible"),
+    ("9GAG", "https://www.9gag.com/u/{name}", "https://www.9gag.com/u/{name}", "http"),
+    ("About.me", "https://about.me/{name}", "https://about.me/{name}", "http"),
+    ("Academia.edu", "https://independent.academia.edu/{name}", "https://independent.academia.edu/{name}", "http"),
+    ("Apple Developer", "https://developer.apple.com/forums/profile/{name}", "https://developer.apple.com/forums/profile/{name}", "http"),
+    ("Archive.org", "https://archive.org/details/@{name}?noscript=true", "https://archive.org/details/@{name}", "message", ("could not fetch an account with user item identifier", "the resource could not be found")),
+    ("Arduino Forum", "https://forum.arduino.cc/u/{name}/summary", "https://forum.arduino.cc/u/{name}/summary", "http"),
+    ("Bandcamp", "https://www.bandcamp.com/{name}", "https://www.bandcamp.com/{name}", "http"),
+    ("Behance", "https://www.behance.net/{name}", "https://www.behance.net/{name}", "http"),
+    ("Chess.com", "https://www.chess.com/callback/user/valid?username={name}", "https://www.chess.com/member/{name}", "chess"),
+    ("DeviantArt", "https://www.deviantart.com/{name}", "https://www.deviantart.com/{name}", "message", ("llama not found",)),
+    ("Disqus", "https://disqus.com/{name}", "https://disqus.com/{name}", "http"),
+    ("Dribbble", "https://dribbble.com/{name}", "https://dribbble.com/{name}", "message", ("whoops, that page is gone",)),
+    ("Flickr", "https://www.flickr.com/people/{name}/", "https://www.flickr.com/people/{name}/", "http"),
+    ("Goodreads", "https://www.goodreads.com/{name}", "https://www.goodreads.com/{name}", "http"),
+    ("Kaggle", "https://www.kaggle.com/{name}", "https://www.kaggle.com/{name}", "http"),
+    ("Keybase", "https://keybase.io/{name}", "https://keybase.io/{name}", "http"),
+    ("Letterboxd", "https://letterboxd.com/{name}/", "https://letterboxd.com/{name}/", "message", ("sorry, we can’t find the page you’ve requested",)),
+    ("Lichess", "https://lichess.org/@/{name}", "https://lichess.org/@/{name}", "http"),
+    ("LinkedIn", "https://www.linkedin.com/in/{name}", "https://www.linkedin.com/in/{name}", "possible"),
+    ("Patreon", "https://www.patreon.com/{name}", "https://www.patreon.com/{name}", "http"),
+    ("Product Hunt", "https://www.producthunt.com/@{name}", "https://www.producthunt.com/@{name}", "possible"),
+    ("Snapchat", "https://www.snapchat.com/add/{name}", "https://www.snapchat.com/add/{name}", "possible"),
+    ("Spotify", "https://open.spotify.com/user/{name}", "https://open.spotify.com/user/{name}", "possible"),
+    ("Telegram", "https://t.me/{name}", "https://t.me/{name}", "telegram"),
+    ("Vimeo", "https://vimeo.com/{name}", "https://vimeo.com/{name}", "http"),
+    ("last.fm", "https://last.fm/user/{name}", "https://last.fm/user/{name}", "http"),
+    ("Mastodon.social", "https://mastodon.social/@{name}", "https://mastodon.social/@{name}", "possible"),
+    ("Tumblr", "https://{name}.tumblr.com/", "https://{name}.tumblr.com/", "possible"),
 ]
 USERNAME_UA = "Mozilla/5.0 (compatible; FieldkitPublicProfileCheck/1.0)"
 
 
 def check_username_site(site, username):
-    label, probe_tpl, profile_tpl, mode = site
+    label, probe_tpl, profile_tpl, mode, *site_rules = site
+    error_markers = site_rules[0] if site_rules else ()
     encoded = urllib.parse.quote(username, safe="")
     probe_url = probe_tpl.format(name=encoded)
     profile_url = profile_tpl.format(name=encoded)
@@ -223,7 +252,7 @@ def check_username_site(site, username):
         "Range": "bytes=0-65535",
     })
     try:
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=4) as response:
             status, body = response.status, response.read(65536)
             final_url = response.geturl()
     except urllib.error.HTTPError as exc:
@@ -289,6 +318,17 @@ def check_username_site(site, username):
                 result = "found"
             else:
                 result = "possible"
+        elif mode == "message":
+            result = "not_found" if any(marker.casefold() in text for marker in error_markers) else "found"
+        elif mode == "chess":
+            result = "not_found" if "username is valid" in text else "found"
+        elif mode == "telegram":
+            if "<title>telegram messenger</title>" in text:
+                result = "not_found"
+            elif "tgme_username_link" in text:
+                result = "found"
+            else:
+                result = "possible"
         elif mode == "medium":
             result = "found" if "<rss" in text and "<channel" in text else "not_found" if "<body" in text else "unknown"
         elif mode == "twitch":
@@ -314,7 +354,7 @@ def check_username_site(site, username):
 def search_public_username(username):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results = [None] * len(USERNAME_SITES)
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=16) as pool:
         jobs = {pool.submit(check_username_site, site, username): i for i, site in enumerate(USERNAME_SITES)}
         for job in as_completed(jobs):
             index = jobs[job]
@@ -324,6 +364,98 @@ def search_public_username(username):
                 results[index] = {"site": USERNAME_SITES[index][0], "status": "unknown",
                                   "url": USERNAME_SITES[index][2].format(name=urllib.parse.quote(username, safe=""))}
     return results
+
+
+DISPOSABLE_EMAIL_DOMAINS = {
+    "10minutemail.com", "guerrillamail.com", "mailinator.com", "tempmail.com",
+    "temp-mail.org", "yopmail.com", "getnada.com", "throwawaymail.com",
+}
+DNS_TYPES = {"A": 1, "NS": 2, "MX": 15, "AAAA": 28}
+
+
+def dns_records(name, record_type):
+    """Read public DNS records via DNS-over-HTTPS; no email mailbox is sent."""
+    rtype = str(record_type).upper()
+    if rtype not in DNS_TYPES:
+        raise ValueError("unsupported DNS record")
+    query = urllib.parse.urlencode({"name": name, "type": rtype})
+    req = urllib.request.Request("https://dns.google/resolve?" + query, headers={
+        "User-Agent": USERNAME_UA, "Accept": "application/dns-json"})
+    with urllib.request.urlopen(req, timeout=5) as response:
+        data = json.loads(response.read(65536))
+    if data.get("Status") not in (0, 3):
+        raise RuntimeError("DNS-Abfrage nicht verfügbar")
+    answers = data.get("Answer") or []
+    return [str(row.get("data", "")).rstrip(".") for row in answers if row.get("type") == DNS_TYPES[rtype] and row.get("data")]
+
+
+def check_email_domain(address):
+    address = str(address or "").strip()
+    if len(address) > 254 or address.count("@") != 1:
+        raise ValueError("Bitte gib eine gültige E-Mail-Adresse ein.")
+    local, domain = address.rsplit("@", 1)
+    if (not local or len(local) > 64 or local.startswith(".") or local.endswith(".") or ".." in local
+            or not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+", local)):
+        raise ValueError("Bitte gib eine gültige E-Mail-Adresse ein.")
+    try:
+        domain = domain.rstrip(".").encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("Die E-Mail-Domain ist ungültig.") from exc
+    labels = domain.split(".")
+    if len(domain) > 253 or len(labels) < 2 or any(not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", part) for part in labels):
+        raise ValueError("Die E-Mail-Domain ist ungültig.")
+    try:
+        mx = dns_records(domain, "MX")
+        mx_status = "present" if mx else "missing"
+    except Exception:
+        mx, mx_status = [], "unknown"
+    return {"domain": domain, "mxStatus": mx_status, "mxRecords": mx,
+            "disposableDomain": domain in DISPOSABLE_EMAIL_DOMAINS}
+
+
+def check_cyber_target(target):
+    """Return public DNS/RDAP metadata only; this does not scan ports or test exploits."""
+    target = str(target or "").strip().rstrip(".")
+    if not target or len(target) > 253 or any(c in target for c in "/:@?#"):
+        raise ValueError("Gib eine Domain oder IP-Adresse ohne URL-Pfad ein.")
+    try:
+        address = ipaddress.ip_address(target)
+        normalized, kind = str(address), "ip"
+    except ValueError:
+        try:
+            normalized = target.encode("idna").decode("ascii").lower()
+        except UnicodeError as exc:
+            raise ValueError("Die Domain ist ungültig.") from exc
+        if "." not in normalized or any(not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", part) for part in normalized.split(".")):
+            raise ValueError("Gib eine gültige Domain oder IP-Adresse ein.")
+        kind = "domain"
+    url = "https://rdap.org/%s/%s" % (kind, urllib.parse.quote(normalized, safe=":" if kind == "ip" else ".-"))
+    rdap = None
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USERNAME_UA, "Accept": "application/rdap+json,application/json"})
+        with urllib.request.urlopen(req, timeout=7) as response:
+            payload = json.loads(response.read(262144))
+        events = {str(row.get("eventAction")): row.get("eventDate") for row in payload.get("events", []) if isinstance(row, dict)}
+        rdap = {key: payload.get(key) for key in ("name", "handle", "country", "startAddress", "endAddress", "type", "status") if payload.get(key) is not None}
+        if events:
+            rdap["events"] = {k: events[k] for k in ("registration", "last changed", "expiration") if k in events}
+        if kind == "domain":
+            rdap["nameservers"] = [str(row.get("ldhName", "")).rstrip(".") for row in payload.get("nameservers", []) if isinstance(row, dict) and row.get("ldhName")][:12]
+    except Exception:
+        rdap = None
+    records = {}
+    if kind == "domain":
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            jobs = {pool.submit(dns_records, normalized, rtype): rtype for rtype in ("A", "AAAA", "NS", "MX")}
+            for job, rtype in [(f, jobs[f]) for f in jobs]:
+                try:
+                    values = job.result(timeout=6)
+                    if values:
+                        records[rtype] = values[:12]
+                except Exception:
+                    pass
+    return {"target": normalized, "kind": kind, "rdap": rdap, "dns": records}
 
 
 # ---------------------------------------------------------------- Bilder
@@ -492,8 +624,8 @@ class H(BaseHTTPRequestHandler):
         try:
             path = urllib.parse.urlparse(p).path
             if path == "/health":
-                return self.jout({"ok": True, "app": "FIELDKIT Roblox Avatar Finder + Username Finder", "tools": ["avatar-finder", "username-finder"]})
-            if path in ("/", "/index.html", "/test.html", "/avatar"):
+                return self.jout({"ok": True, "app": "FIELDKIT Avatar Finder + OSINT Toolkit", "tools": ["avatar-finder", "osint-toolkit"]})
+            if path in ("/", "/index.html", "/test.html", "/avatar", "/avatar-finder", "/osint", "/osint/username", "/osint/email", "/osint/csint", "/email-lookup", "/cyber-lookup", "/username-finder"):
                 return self.out(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             if p == "/favicon.ico":
                 return self.out(204, b"")
@@ -512,6 +644,16 @@ class H(BaseHTTPRequestHandler):
                 if not re.fullmatch(r"[A-Za-z0-9_.-]{1,30}", name):
                     return self.jout({"error": "name"}, 400)
                 return self.jout({"username": name, "results": search_public_username(name)})
+            if u.path == "/x/email-check":
+                try:
+                    return self.jout(check_email_domain((q.get("email") or [""])[0]))
+                except ValueError as exc:
+                    return self.jout({"error": str(exc)}, 400)
+            if u.path == "/x/cyber-check":
+                try:
+                    return self.jout(check_cyber_target((q.get("target") or [""])[0]))
+                except ValueError as exc:
+                    return self.jout({"error": str(exc)}, 400)
             if u.path == "/x/recent":
                 return self.jout(recent_list())
             if u.path.startswith("/x/outfits/"):
@@ -1213,6 +1355,13 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
 .username-details{margin-top:18px;border:1px solid var(--line);border-radius:14px;background:var(--glass2)}.username-details summary{padding:13px 16px;cursor:pointer;color:var(--sub);font-size:12px;font-weight:700}.username-details .username-results-grid{padding:0 12px 12px}
 .username-note{margin-top:20px;padding:13px 15px;border-radius:12px;background:var(--glass2);color:var(--sub);font-size:11px;line-height:1.6}
 @media(max-width:520px){#usernameToolScreen{padding:10px}.username-window{height:calc(100dvh - 20px);border-radius:18px}.username-bar{height:50px;padding:0 12px}.username-content{padding:14px}.username-search-form{flex-direction:column}.username-search-form button{height:44px}}
+.osint-tabs{display:flex;gap:7px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--glass2)}
+.osint-tabs button{padding:8px 13px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--sub);font:600 11px Inter,system-ui,sans-serif;cursor:pointer}
+.osint-tabs button:hover,.osint-tabs button.active{border-color:var(--line);background:var(--glass);color:var(--txt);box-shadow:inset 0 1px var(--rim)}
+.osint-panel[hidden]{display:none!important}
+.lookup-data{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:11px}
+.lookup-data .card{padding:14px}.lookup-data b{display:block;margin-bottom:5px;font-size:12px}.lookup-data span{color:var(--sub);font-size:12px;overflow-wrap:anywhere}
+@media(max-width:520px){.osint-tabs{gap:3px;padding:8px}.osint-tabs button{flex:1;padding:8px 5px;font-size:10px}}
 </style>
 </head>
 <body>
@@ -1281,17 +1430,30 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
 </div>
 <div id="usernameToolScreen" aria-labelledby="usernameToolTitle">
  <div class="username-window">
-  <header class="username-bar"><button class="username-back" id="usernameBack" aria-label="Zur Tool-Auswahl zurück">←</button><h2 id="usernameToolTitle">Username Finder</h2></header>
+  <header class="username-bar"><button class="username-back" id="usernameBack" aria-label="Zur Tool-Auswahl zurück">←</button><h2 id="usernameToolTitle">OSINT Toolkit</h2></header>
+  <nav class="osint-tabs" aria-label="OSINT-Lookups">
+   <button type="button" data-osint-path="/osint/username">Username</button><button type="button" data-osint-path="/osint/email">E-Mail</button><button type="button" data-osint-path="/osint/csint">CSINT / Domain</button>
+  </nav>
   <main class="username-content">
-   <section class="username-hero">
-    <div class="eyebrow">PUBLIC PROFILE SEARCH</div>
-    <h1>Username auf mehreren Seiten suchen</h1>
-    <p>Gib einen Nutzernamen ein. Der Finder prüft öffentliche Profilseiten auf mehreren Plattformen und zeigt bestätigte, mögliche und nicht eindeutig prüfbare Treffer getrennt an.</p>
-    <form class="username-search-form" id="usernameSearchForm"><input id="usernameQuery" name="username" maxlength="30" autocomplete="off" spellcheck="false" placeholder="Nutzernamen eingeben, z. B. builderman" aria-label="Nutzernamen"><button type="submit" id="usernameSearchButton">Suchen</button></form>
+   <section id="usernamePanel" class="osint-panel">
+    <section class="username-hero"><div class="eyebrow">PUBLIC PROFILE SEARCH</div><h1>Username auf 44 Websites suchen</h1><p>Gib einen Nutzernamen ein. Der Finder prüft öffentliche Profilseiten und unterscheidet bestätigte, mögliche und nicht eindeutig prüfbare Treffer.</p>
+     <form class="username-search-form" id="usernameSearchForm"><input id="usernameQuery" name="username" maxlength="30" autocomplete="off" spellcheck="false" placeholder="Nutzernamen eingeben, z. B. builderman" aria-label="Nutzernamen"><button type="submit" id="usernameSearchButton">Suchen</button></form>
+    </section>
+    <div id="usernameSearchStatus" aria-live="polite"></div><section id="usernameSearchResults" aria-live="polite"></section>
+    <p class="username-note">Einige Plattformen blockieren automatische Prüfungen. Deshalb werden uneindeutige Antworten nicht als bestätigtes Konto ausgegeben. Es werden keine Logins oder Schutzmechanismen umgangen.</p>
    </section>
-   <div id="usernameSearchStatus" aria-live="polite"></div>
-   <section id="usernameSearchResults" aria-live="polite"></section>
-   <p class="username-note">Es werden nur öffentliche Profilseiten geprüft. Manche Plattformen blockieren automatisierte Abfragen oder liefern keine eindeutige Antwort; solche Treffer werden als „möglich“ oder „nicht eindeutig“ markiert. Die Suche umgeht keine Logins oder Schutzmechanismen.</p>
+   <section id="emailPanel" class="osint-panel" hidden>
+    <section class="username-hero"><div class="eyebrow">EMAIL DOMAIN CHECK</div><h1>E-Mail-Adresse prüfen</h1><p>Prüft Format, Domain und öffentliche MX-Mailserver. Es wird nicht geprüft, ob ein Postfach existiert oder bei anderen Websites registriert ist.</p>
+     <form class="username-search-form" id="emailCheckForm"><input id="emailCheckInput" type="email" maxlength="254" autocomplete="off" placeholder="name@example.com" aria-label="E-Mail-Adresse"><button type="submit" id="emailCheckButton">Prüfen</button></form>
+    </section><div id="emailCheckStatus" aria-live="polite"></div><section id="emailCheckResults"></section>
+    <p class="username-note">Nur die Domain wird an einen öffentlichen DNS-over-HTTPS-Resolver gesendet. Die vollständige E-Mail-Adresse wird nicht gespeichert und nicht an Registrierungs- oder Datenleck-Datenbanken geschickt.</p>
+   </section>
+   <section id="csintPanel" class="osint-panel" hidden>
+    <section class="username-hero"><div class="eyebrow">CYBER SECURITY INTELLIGENCE</div><h1>Öffentliche Domain- und IP-Infos</h1><p>Ruft öffentliche DNS- und RDAP-Registrierungsdaten ab. Das ist passive Recherche – kein Portscan, kein Exploit-Test und keine Aussage, dass ein Ziel sicher oder schädlich ist.</p>
+     <form class="username-search-form" id="cyberCheckForm"><input id="cyberCheckInput" maxlength="253" autocomplete="off" spellcheck="false" placeholder="example.com oder öffentliche IP-Adresse" aria-label="Domain oder IP-Adresse"><button type="submit" id="cyberCheckButton">Nachschlagen</button></form>
+    </section><div id="cyberCheckStatus" aria-live="polite"></div><section id="cyberCheckResults"></section>
+    <p class="username-note">CSINT wird hier als Cyber Security Intelligence verstanden: passive öffentliche DNS-/RDAP-Daten. Es werden keine Systeme gescannt oder angegriffen.</p>
+   </section>
   </main>
  </div>
 </div>
@@ -1334,7 +1496,7 @@ const ic=(n,s=20)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="no
 
 const APP_TOOLS=[
  {id:'avatar',label:'Roblox Avatar Finder',icon:'user',color:'#b55bfa',desc:'Roblox-Profile nach Name oder ID suchen und Avatar, Items, Outfits und mehr ansehen.'},
- {id:'username',label:'Username Finder',icon:'search',color:'#308cff',desc:'Öffentliche Profile zu einem Nutzernamen auf vielen Websites finden.'}
+ {id:'osint',label:'OSINT Toolkit',icon:'search',color:'#308cff',desc:'Username auf vielen Websites sowie E-Mail-Domain und öffentliche Domain-/IP-Daten prüfen.'}
 ];
 const TABS=[
  {id:'start',label:'Startseite',icon:'home',color:'#308cff',desc:''},
@@ -1913,8 +2075,36 @@ const GM_TH='https://thumbnails.roblox.com/v1/games/icons?size=150x150&format=Pn
 
 function setBusy(v){$('#pill').classList.toggle('busy',v)}
 function focusSearch(){closeSheet();showWin();const q=$('#q');q.focus();q.select()}
+function showOsintPanel(path){
+ const route=path==='/osint/email'?'/osint/email':path==='/osint/csint'?'/osint/csint':'/osint/username';
+ $$('.osint-panel').forEach(panel=>panel.hidden=panel.id!==({ '/osint/username':'usernamePanel','/osint/email':'emailPanel','/osint/csint':'csintPanel'}[route]));
+ $$('.osint-tabs [data-osint-path]').forEach(button=>button.classList.toggle('active',button.dataset.osintPath===route));
+ if(route==='/osint/email')setTimeout(()=>$('#emailCheckInput').focus(),60);
+ if(route==='/osint/csint')setTimeout(()=>$('#cyberCheckInput').focus(),60);
+}
+function applyPageRoute(){
+ let path=location.pathname.replace(/\/$/,'')||'/';
+ if(path==='/username-finder')path='/osint/username';
+ if(path==='/osint')path='/osint/username';
+ if(path==='/email-lookup')path='/osint/email';
+ if(path==='/cyber-lookup')path='/osint/csint';
+ if(path==='/'||path==='/index.html'||path==='/test.html'){
+  $('#usernameToolScreen').classList.remove('show');$('#toolPickerGate').classList.remove('dismissed');return;
+ }
+ $('#toolPickerGate').classList.add('dismissed');
+ if(path==='/avatar-finder'||path==='/avatar'){
+  $('#usernameToolScreen').classList.remove('show');showWin();showTab('start');return;
+ }
+ if(path.startsWith('/osint/')){
+  $('#usernameToolScreen').classList.add('show');showOsintPanel(path);return;
+ }
+ $('#usernameToolScreen').classList.remove('show');$('#toolPickerGate').classList.remove('dismissed');
+}
+function routeTo(path){if(location.pathname!==path)history.pushState({},'',path);applyPageRoute()}
+addEventListener('popstate',applyPageRoute);
 
 async function resolveName(name){
+
  if(/^[A-Za-z0-9_]{1,20}$/.test(name)){
   try{const r=await fetchRaw('/x/username?name='+encodeURIComponent(name));const u=r.data&&r.data[0];if(u)return String(u.id)}catch(e){}
  }
@@ -2054,6 +2244,33 @@ async function runUsernameSearch(){
  finally{button.disabled=false;button.textContent='Suchen'}
 }
 $('#usernameSearchForm').addEventListener('submit',e=>{e.preventDefault();runUsernameSearch()});
+async function runEmailCheck(){
+ const value=$('#emailCheckInput').value.trim(),button=$('#emailCheckButton');button.disabled=true;button.textContent='Prüfe …';
+ $('#emailCheckStatus').textContent='Prüfe Format und Mailserver-Domain …';$('#emailCheckResults').innerHTML='';
+ try{
+  const response=await fetch('/x/email-check?email='+encodeURIComponent(value));const result=await response.json();if(!response.ok)throw new Error(result.error||'Prüfung fehlgeschlagen');
+  const mx=result.mxStatus==='present'?'MX-Mailserver gefunden':result.mxStatus==='missing'?'Kein MX-Mailserver gefunden':'MX-Status nicht eindeutig';
+  $('#emailCheckStatus').textContent=`Domain ${result.domain}: ${mx}.`;
+  const rows=[['Domain',result.domain],['MX-Status',mx],['MX-Einträge',(result.mxRecords||[]).join(', ')||'Keine bestätigt'],['Wegwerf-Maildomain',result.disposableDomain?'Treffer in lokaler Liste':'Nicht in der lokalen Liste erkannt']];
+  $('#emailCheckResults').innerHTML=`<div class="lookup-data">${rows.map(([k,v])=>`<div class="card"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}</div>`;
+ }catch(error){$('#emailCheckStatus').textContent=error.message||'Die Prüfung ist fehlgeschlagen.'}
+ finally{button.disabled=false;button.textContent='Prüfen'}
+}
+$('#emailCheckForm').addEventListener('submit',e=>{e.preventDefault();runEmailCheck()});
+async function runCyberCheck(){
+ const target=$('#cyberCheckInput').value.trim(),button=$('#cyberCheckButton');button.disabled=true;button.textContent='Lade …';
+ $('#cyberCheckStatus').textContent='Lade öffentliche DNS- und RDAP-Daten …';$('#cyberCheckResults').innerHTML='';
+ try{
+  const response=await fetch('/x/cyber-check?target='+encodeURIComponent(target));const result=await response.json();if(!response.ok)throw new Error(result.error||'Nachschlagen fehlgeschlagen');
+  $('#cyberCheckStatus').textContent=`Öffentliche Daten für ${result.target} (${result.kind})`;
+  const rows=[];if(result.rdap)Object.entries(result.rdap).forEach(([k,v])=>rows.push([`RDAP · ${k}`,Array.isArray(v)?v.join(', '):typeof v==='object'?JSON.stringify(v):String(v)]));
+  Object.entries(result.dns||{}).forEach(([k,v])=>rows.push([`DNS · ${k}`,v.join(', ')]));
+  if(!rows.length)rows.push(['Ergebnis','Keine öffentlichen RDAP- oder DNS-Daten erhalten.']);
+  $('#cyberCheckResults').innerHTML=`<div class="lookup-data">${rows.map(([k,v])=>`<div class="card"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}</div>`;
+ }catch(error){$('#cyberCheckStatus').textContent=error.message||'Die Abfrage ist fehlgeschlagen.'}
+ finally{button.disabled=false;button.textContent='Nachschlagen'}
+}
+$('#cyberCheckForm').addEventListener('submit',e=>{e.preventDefault();runCyberCheck()});
 
 /* ---------- Events ---------- */
 document.addEventListener('click',e=>{
@@ -2080,11 +2297,12 @@ document.addEventListener('click',e=>{
  const oc=e.target.closest('[data-outfit]');if(oc){openOutfit(oc.dataset.outfit);return}
  const q=e.target.closest('[data-q]');if(q){showWin();search(q.dataset.q);return}
  const launch=e.target.closest('[data-launch-tool]');if(launch){
-  const id=launch.dataset.launchTool;$('#toolPickerGate').classList.add('dismissed');
-  if(id==='username'){$('#usernameToolScreen').classList.add('show');setTimeout(()=>$('#usernameQuery').focus(),80);return}
-  $('#usernameToolScreen').classList.remove('show');showWin();showTab('start');return;
+  const id=launch.dataset.launchTool;
+  if(id==='osint'){routeTo('/osint/username');setTimeout(()=>$('#usernameQuery').focus(),100);return}
+  routeTo('/avatar-finder');return;
  }
- const usernameBack=e.target.closest('#usernameBack');if(usernameBack){$('#usernameToolScreen').classList.remove('show');$('#toolPickerGate').classList.remove('dismissed');return}
+ const osintRoute=e.target.closest('[data-osint-path]');if(osintRoute){routeTo(osintRoute.dataset.osintPath);return}
+ const usernameBack=e.target.closest('#usernameBack');if(usernameBack){routeTo('/');return}
  const tb=e.target.closest('[data-tab]');if(tb){
   $('#toolPickerGate').classList.add('dismissed');
   showWin();const id=tb.dataset.tab;
@@ -2136,7 +2354,7 @@ if(cursorAura&&matchMedia('(pointer:fine)').matches){
 /* ---------- Start ---------- */
 function clock(){$('#clock').textContent=new Date().toLocaleString('de-DE',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
 if(innerWidth>760)setSidebarWidth(localStorage.getItem('af-sidebar-width')||178,false);
-renderAll();showTab('start');recentLoad();center();clock();setInterval(clock,30000);
+renderAll();showTab('start');applyPageRoute();recentLoad();center();clock();setInterval(clock,30000);
 addEventListener('load',()=>{moveSel();setTimeout(moveSel,300)});
 if(location.protocol==='file:')setTimeout(()=>showAlert("So geht's nicht",'Bitte starte die Datei mit Python (python test.py). Dann öffnet sich die Seite von selbst.'),500);
 </script>
@@ -2183,7 +2401,7 @@ def open_app(url, srv):
 
 # ---------------------------------------------------------------- Start
 def main():
-    parser = argparse.ArgumentParser(description="Run the FIELDKIT Roblox Avatar Finder and Username Finder.")
+    parser = argparse.ArgumentParser(description="Run the FIELDKIT Roblox Avatar Finder and OSINT Toolkit.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: localhost)")
     parser.add_argument("--port", type=int, default=PORT, help="Port (default: 8765)")
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically")

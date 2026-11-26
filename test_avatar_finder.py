@@ -55,11 +55,11 @@ class AvatarFinderTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(file), "--help"], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Roblox Avatar Finder", result.stdout)
-        self.assertIn("Username Finder", result.stdout)
+        self.assertIn("OSINT Toolkit", result.stdout)
         self.assertNotIn("public lookup tools", result.stdout)
 
     def test_root_and_legacy_avatar_route_serve_same_full_finder(self):
-        paths = ("/", "/avatar", "/index.html", "/test.html")
+        paths = ("/", "/avatar", "/index.html", "/test.html", "/avatar-finder", "/osint", "/osint/username", "/osint/email", "/osint/csint", "/email-lookup", "/cyber-lookup")
         bodies = []
         for path in paths:
             with self.request(path) as response:
@@ -78,8 +78,8 @@ class AvatarFinderTests(unittest.TestCase):
     def test_health_reports_both_finder_tools(self):
         with self.request("/health") as response:
             info = json.loads(response.read())
-        self.assertEqual(info["app"], "FIELDKIT Roblox Avatar Finder + Username Finder")
-        self.assertEqual(info["tools"], ["avatar-finder", "username-finder"])
+        self.assertEqual(info["app"], "FIELDKIT Avatar Finder + OSINT Toolkit")
+        self.assertEqual(info["tools"], ["avatar-finder", "osint-toolkit"])
 
     def test_username_search_returns_public_site_results(self):
         expected = [{"site": "GitHub", "status": "found", "url": "https://github.com/example"}]
@@ -109,6 +109,36 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 400)
         search_sites.assert_not_called()
 
+    def test_email_check_returns_domain_only_and_mx_data(self):
+        expected = {"domain": "example.com", "mxStatus": "present", "mxRecords": ["10 mail.example.com"], "disposableDomain": False}
+        with patch.object(tool_hub, "check_email_domain", return_value=expected) as check:
+            with self.request("/x/email-check?email=user%40example.com") as response:
+                result = json.loads(response.read())
+        self.assertEqual(result, expected)
+        check.assert_called_once_with("user@example.com")
+
+    def test_email_domain_checker_validates_and_queries_mx_only(self):
+        with patch.object(tool_hub, "dns_records", return_value=["10 mail.example.com"]) as dns:
+            result = tool_hub.check_email_domain("user@example.com")
+        self.assertEqual(result["mxStatus"], "present")
+        self.assertEqual(result["domain"], "example.com")
+        dns.assert_called_once_with("example.com", "MX")
+
+    def test_email_check_rejects_invalid_input(self):
+        with patch.object(tool_hub, "check_email_domain", side_effect=ValueError("invalid email")) as check:
+            with self.assertRaises(HTTPError) as error:
+                self.request("/x/email-check?email=not-an-email")
+        self.assertEqual(error.exception.code, 400)
+        check.assert_called_once_with("not-an-email")
+
+    def test_cyber_lookup_returns_public_dns_and_rdap_data(self):
+        expected = {"target": "example.com", "kind": "domain", "rdap": {"name": "EXAMPLE.COM"}, "dns": {"A": ["192.0.2.1"]}}
+        with patch.object(tool_hub, "check_cyber_target", return_value=expected) as check:
+            with self.request("/x/cyber-check?target=example.com") as response:
+                result = json.loads(response.read())
+        self.assertEqual(result, expected)
+        check.assert_called_once_with("example.com")
+
     def test_avatar_design_and_preferences_remain_in_page(self):
         page = tool_hub.PAGE
         for marker in ("backdrop-filter", "@keyframes", "af-theme", "af-accent", "af-wallpaper", "af-glass-blur", "af-motion"):
@@ -126,12 +156,17 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertIn('class="card fcard launch-card" data-launch-tool="${t.id}"', page)
         self.assertIn("$('#toolPickerCards').innerHTML=APP_TOOLS.map", page)
         self.assertIn("label:'Roblox Avatar Finder'", page)
-        self.assertIn("label:'Username Finder'", page)
+        self.assertIn("label:'OSINT Toolkit'", page)
         tool_choices = page.split("const APP_TOOLS=[", 1)[1].split("];", 1)[0]
         self.assertEqual(tool_choices.count("{id:"), 2)
-        self.assertGreaterEqual(len(tool_hub.USERNAME_SITES), 15)
+        self.assertGreaterEqual(len(tool_hub.USERNAME_SITES), 40)
         self.assertIn('id="usernameToolScreen"', page)
+        self.assertIn('data-osint-path="/osint/email"', page)
+        self.assertIn('data-osint-path="/osint/csint"', page)
         self.assertIn('id="usernameSearchForm"', page)
+        self.assertIn('id="emailCheckForm"', page)
+        self.assertIn('id="cyberCheckForm"', page)
+        self.assertIn("history.pushState", page)
         self.assertIn("runUsernameSearch()", page)
         self.assertIn("$('#toolPickerGate').classList.add('dismissed')", page)
         self.assertIn("<div class=\"sec\"><span>Was du hier findest</span></div>", page)
