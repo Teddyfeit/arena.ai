@@ -1,4 +1,4 @@
-# FIELDKIT — Roblox Avatar Finder.
+# FIELDKIT — Roblox Avatar Finder + public Username Finder.
 # Start with: python tool_hub.py
 from __future__ import annotations
 
@@ -188,6 +188,105 @@ def log(tag, code, url):
         pass
 
 
+# Public username-profile checks. Sites that don't expose reliable account status are
+# reported as possible/unverified rather than being presented as confirmed matches.
+USERNAME_SITES = [
+    ("GitHub", "https://github.com/{name}", "https://github.com/{name}", "http"),
+    ("GitLab", "https://gitlab.com/{name}", "https://gitlab.com/{name}", "http"),
+    ("Codeberg", "https://codeberg.org/{name}", "https://codeberg.org/{name}", "http"),
+    ("Reddit", "https://www.reddit.com/user/{name}/about.json", "https://www.reddit.com/user/{name}/", "reddit"),
+    ("npm", "https://registry.npmjs.org/-/user/org.couchdb.user:{name}", "https://www.npmjs.com/~{name}", "npm"),
+    ("Hacker News", "https://hacker-news.firebaseio.com/v0/user/{name}.json", "https://news.ycombinator.com/user?id={name}", "hackernews"),
+    ("Steam", "https://steamcommunity.com/id/{name}", "https://steamcommunity.com/id/{name}", "steam"),
+    ("Dev.to", "https://dev.to/{name}", "https://dev.to/{name}", "http"),
+    ("Medium", "https://medium.com/@{name}", "https://medium.com/@{name}", "possible"),
+    ("SoundCloud", "https://soundcloud.com/{name}", "https://soundcloud.com/{name}", "possible"),
+    ("Twitch", "https://www.twitch.tv/{name}", "https://www.twitch.tv/{name}", "possible"),
+    ("YouTube", "https://www.youtube.com/@{name}", "https://www.youtube.com/@{name}", "possible"),
+    ("Instagram", "https://www.instagram.com/{name}/", "https://www.instagram.com/{name}/", "possible"),
+    ("TikTok", "https://www.tiktok.com/@{name}", "https://www.tiktok.com/@{name}", "possible"),
+    ("X", "https://x.com/{name}", "https://x.com/{name}", "possible"),
+    ("Pinterest", "https://www.pinterest.com/{name}/", "https://www.pinterest.com/{name}/", "possible"),
+]
+USERNAME_UA = "Mozilla/5.0 (compatible; FieldkitPublicProfileCheck/1.0)"
+
+
+def check_username_site(site, username):
+    label, probe_tpl, profile_tpl, mode = site
+    encoded = urllib.parse.quote(username, safe="")
+    probe_url = probe_tpl.format(name=encoded)
+    profile_url = profile_tpl.format(name=encoded)
+    req = urllib.request.Request(probe_url, headers={
+        "User-Agent": USERNAME_UA,
+        "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+        "Range": "bytes=0-65535",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            status, body = response.status, response.read(65536)
+            final_url = response.geturl()
+    except urllib.error.HTTPError as exc:
+        status, body, final_url = exc.code, exc.read(65536), exc.geturl()
+    except Exception:
+        return {"site": label, "status": "unknown", "url": profile_url}
+
+    text = body.decode("utf-8", "ignore").lower()
+    result = "unknown"
+    if status in (404, 410):
+        result = "not_found"
+    elif status == 200:
+        if mode == "reddit":
+            try:
+                payload = json.loads(body)
+                author = (payload.get("data") or {}).get("name")
+                result = "found" if isinstance(author, str) and author.casefold() == username.casefold() else "not_found"
+            except Exception:
+                result = "unknown"
+        elif mode == "npm":
+            try:
+                payload = json.loads(body)
+                account = payload.get("name")
+                result = "found" if isinstance(account, str) and account.casefold() == username.casefold() else "not_found"
+            except Exception:
+                result = "unknown"
+        elif mode == "hackernews":
+            try:
+                payload = json.loads(body)
+                result = "found" if isinstance(payload, dict) and str(payload.get("id", "")).casefold() == username.casefold() else "not_found"
+            except Exception:
+                result = "unknown"
+        elif mode == "steam":
+            if "the specified profile could not be found" in text or "profile not found" in text:
+                result = "not_found"
+            elif "steamcommunity.com/profiles/" in (final_url + text):
+                result = "found"
+            else:
+                result = "possible"
+        elif mode == "possible":
+            missing_markers = ("page not found", "user not found", "profile not found", "this page doesn't exist",
+                               "this account doesn't exist", "sorry, this page isn't available", "couldn't find this account")
+            result = "not_found" if any(marker in text for marker in missing_markers) else "possible"
+        else:
+            missing_markers = ("page not found", "user not found", "profile not found", "this page doesn't exist")
+            result = "not_found" if any(marker in text for marker in missing_markers) else "found"
+    return {"site": label, "status": result, "url": profile_url}
+
+
+def search_public_username(username):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results = [None] * len(USERNAME_SITES)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        jobs = {pool.submit(check_username_site, site, username): i for i, site in enumerate(USERNAME_SITES)}
+        for job in as_completed(jobs):
+            index = jobs[job]
+            try:
+                results[index] = job.result()
+            except Exception:
+                results[index] = {"site": USERNAME_SITES[index][0], "status": "unknown",
+                                  "url": USERNAME_SITES[index][2].format(name=urllib.parse.quote(username, safe=""))}
+    return results
+
+
 # ---------------------------------------------------------------- Bilder
 def thumbs(base, ids, tries=2, wait=0.35):
     """Bilder holen, 'Pending' nachladen. Rückgabe: {id(str): url}"""
@@ -354,7 +453,7 @@ class H(BaseHTTPRequestHandler):
         try:
             path = urllib.parse.urlparse(p).path
             if path == "/health":
-                return self.jout({"ok": True, "app": "FIELDKIT Roblox Avatar Finder", "tools": ["avatar-finder"]})
+                return self.jout({"ok": True, "app": "FIELDKIT Roblox Avatar Finder + Username Finder", "tools": ["avatar-finder", "username-finder"]})
             if path in ("/", "/index.html", "/test.html", "/avatar"):
                 return self.out(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             if p == "/favicon.ico":
@@ -369,6 +468,11 @@ class H(BaseHTTPRequestHandler):
             u = urllib.parse.urlparse(p)
             q = urllib.parse.parse_qs(u.query)
             fresh = bool(q.get("fresh"))
+            if u.path == "/x/username-search":
+                name = (q.get("name") or [""])[0]
+                if not re.fullmatch(r"[A-Za-z0-9_.-]{1,30}", name):
+                    return self.jout({"error": "name"}, 400)
+                return self.jout({"username": name, "results": search_public_username(name)})
             if u.path == "/x/recent":
                 return self.jout(recent_list())
             if u.path.startswith("/x/outfits/"):
@@ -1023,17 +1127,17 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
 @media(prefers-reduced-motion:reduce){#content{scroll-behavior:auto}.tab>.state,.tab>pre.raw,.tab>.grid,.tab>.pills,.palette-block,.ni,.navshortcuts button{animation:none!important}}
 .collection-tools{display:flex;align-items:center;gap:9px;margin:0 0 14px;flex-wrap:wrap}.collection-search{height:36px;min-width:min(240px,100%);flex:1;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--sub)}.collection-search input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--txt);font:inherit;font-size:12px}.collection-tools select{height:36px;max-width:190px;padding:0 10px;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);font:inherit;font-size:11px}.collection-tools select option{color:#222}.tool-btn{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--line);border-radius:11px;background:var(--glass2);color:var(--txt);cursor:pointer}.export-csv{height:36px;padding:0 11px;font-size:11px}.collection-grid.list-layout{grid-template-columns:1fr!important;gap:8px}.collection-grid.list-layout .card{display:flex;align-items:center;min-height:82px}.collection-grid.list-layout .th,.collection-grid.list-layout .gi{width:78px;height:78px;min-width:78px;flex:none;border-radius:12px}.collection-grid.list-layout .cb,.collection-grid.list-layout .gb{flex:1;min-width:0}.collection-grid.list-layout .rowcard .gb{padding:10px 14px}.filter-empty{padding:20px;text-align:center;color:var(--sub);font-size:13px}.rchip{padding:0;gap:0}.rchip-open{min-width:0;display:flex;align-items:center;gap:9px;padding:5px 8px 5px 5px;border:0;background:transparent;color:var(--txt);cursor:pointer;text-align:left}.rchip-open span:not(.ph2){min-width:0}.rchip-open b{font-size:12px}.recent-remove{width:27px;height:27px;margin:0 5px 0 2px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--sub);cursor:pointer}.recent-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.profile-tool-row{display:flex;justify-content:center;gap:5px}.profile-tool-row .tool-btn{width:29px;height:29px;border-radius:9px}.profile-actions .favorite-toggle{border:1px solid rgba(255,255,255,.26);background:rgba(255,255,255,.12);color:#fff}.profile-actions .favorite-toggle.saved{background:rgba(255,196,65,.2);border-color:rgba(255,205,91,.45);color:#ffe08b}.favorites-empty{min-height:250px;padding:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.favorite-empty-icon{width:56px;height:56px;display:grid;place-items:center;border-radius:18px;background:rgba(255,190,65,.15);color:#ffbd4a}.favorites-empty h2{margin:14px 0 5px;font-size:20px}.favorites-empty p{max-width:360px;margin-bottom:16px;color:var(--sub);font-size:12px}.favorites-head{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px}.favorites-head h2{font-size:20px}.favorites-head h2 span{color:var(--sub);font-size:14px}.favorites-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}.favorite-card{min-height:84px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer}.favorite-avatar{width:50px;height:50px;flex:none;overflow:hidden;border-radius:15px;background:var(--glass2)}.favorite-avatar img{width:100%;height:100%;object-fit:cover}.favorite-copy{min-width:0;flex:1;display:flex;flex-direction:column}.favorite-copy b,.favorite-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.favorite-copy b{font-size:13px}.favorite-copy span{color:var(--sub);font-size:10px}.favorite-remove{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--sub);cursor:pointer}.favorite-remove:hover{background:rgba(255,90,110,.14);color:#ff6b81}
 /* The tool chooser is the actual landing screen: keep the choices in the first view. */
-#t-start .tool-picker-head{min-height:0;grid-template-columns:1fr;gap:0;margin:0 0 12px;padding:22px 28px;border-radius:21px}
-#t-start .tool-picker-head .hero-art,#t-start .tool-picker-head .quick,#t-start .tool-picker-head .hero-caption{display:none}
-#t-start .tool-picker-head .hero-eyebrow{margin-bottom:8px}
-#t-start .tool-picker-head h1{font-size:clamp(28px,3vw,40px);line-height:1.05}
-#t-start .tool-picker-head p{max-width:720px;margin-top:8px;font-size:13px}
+#t-start .avatar-home-head{min-height:0;grid-template-columns:1fr;gap:0;margin:0 0 12px;padding:22px 28px;border-radius:21px}
+#t-start .avatar-home-head .hero-art,#t-start .avatar-home-head .quick,#t-start .avatar-home-head .hero-caption{display:none}
+#t-start .avatar-home-head .hero-eyebrow{margin-bottom:8px}
+#t-start .avatar-home-head h1{font-size:clamp(28px,3vw,40px);line-height:1.05}
+#t-start .avatar-home-head p{max-width:720px;margin-top:8px;font-size:13px}
 #t-start .sec{margin:8px 2px 10px}
 #t-start #feat{grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr))}
 #t-start .fcard{min-height:128px;padding:16px}
 #t-start .fcard .ico{width:34px;height:34px;margin-bottom:10px}
 #t-start #recentBox{margin-top:20px}
-@media(max-width:520px){#t-start .tool-picker-head{padding:18px 16px}#t-start .tool-picker-head h1{font-size:30px}}
+@media(max-width:520px){#t-start .avatar-home-head{padding:18px 16px}#t-start .avatar-home-head h1{font-size:30px}}
 /* Full-screen tool choice shown immediately whenever the website is opened. */
 #toolPickerGate{position:fixed;inset:0;z-index:250;display:grid;place-items:center;padding:24px;background:rgba(14,18,32,.3);backdrop-filter:blur(24px) saturate(135%);-webkit-backdrop-filter:blur(24px) saturate(135%);animation:fade .3s ease-out}
 #toolPickerGate.dismissed{display:none}
@@ -1046,6 +1150,30 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
 #toolPickerCards .launch-card{width:100%;min-height:130px;padding:17px;text-align:left;color:var(--txt);font:inherit;cursor:pointer;appearance:none;-webkit-appearance:none}
 #toolPickerCards .launch-card:focus-visible{outline:3px solid var(--acc);outline-offset:3px}
 @media(max-width:520px){#toolPickerGate{padding:12px}#toolPickerGate .picker-panel{padding:20px 16px;border-radius:20px}#toolPickerCards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}#toolPickerCards .launch-card{min-height:120px;padding:12px}}
+#usernameToolScreen{position:fixed;inset:0;z-index:240;display:none;place-items:center;padding:24px;background:rgba(14,18,32,.3);backdrop-filter:blur(24px) saturate(135%);-webkit-backdrop-filter:blur(24px) saturate(135%)}
+#usernameToolScreen.show{display:grid}
+.username-window{display:flex;flex-direction:column;width:min(1120px,100%);height:min(820px,calc(100dvh - 48px));overflow:hidden;border:1px solid var(--rim);border-radius:25px;background:var(--glass);backdrop-filter:blur(40px) saturate(170%);-webkit-backdrop-filter:blur(40px) saturate(170%);box-shadow:var(--sh),inset 0 1px 0 var(--rim)}
+.username-bar{height:58px;flex:none;display:flex;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--glass2)}
+.username-bar h2{font-size:15px}.username-back{width:34px;height:34px;border:1px solid var(--line);border-radius:50%;background:var(--glass2);cursor:pointer}
+.username-content{flex:1;overflow:auto;padding:clamp(20px,4vw,42px)}
+.username-hero{padding:clamp(20px,3vw,32px);border:1px solid var(--line);border-radius:22px;background:linear-gradient(125deg,color-mix(in srgb,var(--acc) 13%,var(--glass2)),var(--glass2));box-shadow:inset 0 1px 0 var(--rim)}
+.username-hero .eyebrow{color:var(--acc);font-size:10px;font-weight:800;letter-spacing:.14em}
+.username-hero h1{margin-top:6px;font-size:clamp(25px,4vw,38px);letter-spacing:-.04em}
+.username-hero p{max-width:700px;margin-top:9px;color:var(--sub);font-size:13px;line-height:1.6}
+.username-search-form{display:flex;gap:10px;margin-top:22px}
+.username-search-form input{height:46px;min-width:0;flex:1;padding:0 14px;border:1px solid var(--line);border-radius:13px;outline:none;background:var(--glass);color:var(--txt);font:inherit}
+.username-search-form input:focus{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 18%,transparent)}
+.username-search-form button{min-width:120px;padding:0 18px;border:0;border-radius:13px;background:var(--acc);color:#fff;font-weight:700;cursor:pointer}
+.username-search-form button:disabled{opacity:.6;cursor:wait}
+#usernameSearchStatus{min-height:25px;margin:15px 0;color:var(--sub);font-size:12px}
+.username-results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.username-result-card{min-height:96px;padding:15px;display:flex;align-items:center;gap:12px}
+.username-result-icon{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:12px;background:color-mix(in srgb,var(--acc) 15%,transparent);color:var(--acc)}
+.username-result-copy{min-width:0;flex:1}.username-result-copy b,.username-result-copy span{display:block}.username-result-copy span{margin-top:4px;color:var(--sub);font-size:11px}
+.username-result-card a{padding:8px 10px;border-radius:9px;background:var(--glass2);color:var(--acc);font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap}
+.username-details{margin-top:18px;border:1px solid var(--line);border-radius:14px;background:var(--glass2)}.username-details summary{padding:13px 16px;cursor:pointer;color:var(--sub);font-size:12px;font-weight:700}.username-details .username-results-grid{padding:0 12px 12px}
+.username-note{margin-top:20px;padding:13px 15px;border-radius:12px;background:var(--glass2);color:var(--sub);font-size:11px;line-height:1.6}
+@media(max-width:520px){#usernameToolScreen{padding:10px}.username-window{height:calc(100dvh - 20px);border-radius:18px}.username-bar{height:50px;padding:0 12px}.username-content{padding:14px}.username-search-form{flex-direction:column}.username-search-form button{height:44px}}
 </style>
 </head>
 <body>
@@ -1070,11 +1198,11 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
   </div>
   <div class="content" id="content">
    <section class="tab show" id="t-start">
-    <div class="hero tool-picker-head">
+    <div class="hero avatar-home-head">
      <div class="hero-copy">
-      <div class="hero-eyebrow"><i></i> ROBLOX TOOLKIT</div>
-      <h1>Wähle dein Tool<br><span>für Roblox.</span></h1>
-      <p>Wähle ein Tool aus. Wenn es ein Profil braucht, suche im nächsten Schritt oben nach einem Roblox-Namen oder einer Benutzer-ID. Dafür brauchst du kein Konto.</p>
+      <div class="hero-eyebrow"><i></i> ROBLOX AVATAR FINDER</div>
+      <h1>Roblox-Profil finden<br><span>ganz einfach.</span></h1>
+      <p>Gib oben einen Roblox-Namen oder eine Benutzer-ID ein, um Avatar, Items, Outfits, Spiele und Gruppen zu erkunden. Du brauchst kein Konto.</p>
       <div class="quick"><button class="qb" data-q="Roblox">Roblox</button><button class="qb" data-q="builderman">builderman</button><button class="qb" data-q="1">ID 1</button></div>
       <div class="hero-caption"><span class="hero-spark">✦</span> So geht’s: Name eingeben → Suchen klicken → Profil ansehen</div>
      </div>
@@ -1086,8 +1214,8 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
       <div class="hero-glint glint-one"></div><div class="hero-glint glint-two"></div>
      </div>
     </div>
-    <div class="sec"><span>Tool auswählen</span></div>
-    <div class="grid w" id="feat" aria-label="Roblox-Tools auswählen"></div>
+    <div class="sec"><span>Was du hier findest</span></div>
+    <div class="grid w" id="feat" aria-label="Avatar Finder Bereiche"></div>
     <div id="recentBox" style="display:none">
      <div class="sec"><span>Zuletzt gesucht</span><button class="lnkbtn" id="recClear">Löschen</button></div>
      <div class="rec" id="recentList"></div>
@@ -1108,8 +1236,24 @@ html:not(.dark) .side-resize span{background:linear-gradient(180deg,transparent,
  <div class="picker-panel hero">
   <div class="picker-eyebrow"><i></i> ROBLOX TOOLKIT</div>
   <h1 id="toolPickerTitle">Welches Tool möchtest du benutzen?</h1>
-  <p class="picker-intro">Wähle einen Bereich aus. Falls dafür ein Profil nötig ist, kannst du danach nach einem Roblox-Namen oder einer Benutzer-ID suchen.</p>
-  <div class="grid" id="toolPickerCards" aria-label="Roblox-Tools"></div>
+  <p class="picker-intro">Wähle einen der beiden Finder aus.</p>
+  <div class="grid" id="toolPickerCards" aria-label="Tools auswählen"></div>
+ </div>
+</div>
+<div id="usernameToolScreen" aria-labelledby="usernameToolTitle">
+ <div class="username-window">
+  <header class="username-bar"><button class="username-back" id="usernameBack" aria-label="Zur Tool-Auswahl zurück">←</button><h2 id="usernameToolTitle">Username Finder</h2></header>
+  <main class="username-content">
+   <section class="username-hero">
+    <div class="eyebrow">PUBLIC PROFILE SEARCH</div>
+    <h1>Username auf mehreren Seiten suchen</h1>
+    <p>Gib einen Nutzernamen ein. Der Finder prüft öffentliche Profilseiten auf mehreren Plattformen und zeigt bestätigte, mögliche und nicht eindeutig prüfbare Treffer getrennt an.</p>
+    <form class="username-search-form" id="usernameSearchForm"><input id="usernameQuery" name="username" maxlength="30" autocomplete="off" spellcheck="false" placeholder="Nutzernamen eingeben, z. B. builderman" aria-label="Nutzernamen"><button type="submit" id="usernameSearchButton">Suchen</button></form>
+   </section>
+   <div id="usernameSearchStatus" aria-live="polite"></div>
+   <section id="usernameSearchResults" aria-live="polite"></section>
+   <p class="username-note">Es werden nur öffentliche Profilseiten geprüft. Manche Plattformen blockieren automatisierte Abfragen oder liefern keine eindeutige Antwort; solche Treffer werden als „möglich“ oder „nicht eindeutig“ markiert. Die Suche umgeht keine Logins oder Schutzmechanismen.</p>
+  </main>
  </div>
 </div>
 
@@ -1149,6 +1293,10 @@ const ICONS={
 };
 const ic=(n,s=20)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${ICONS[n]}"/></svg>`;
 
+const APP_TOOLS=[
+ {id:'avatar',label:'Roblox Avatar Finder',icon:'user',color:'#b55bfa',desc:'Roblox-Profile nach Name oder ID suchen und Avatar, Items, Outfits und mehr ansehen.'},
+ {id:'username',label:'Username Finder',icon:'search',color:'#308cff',desc:'Öffentliche Profile zu einem Nutzernamen auf vielen Websites finden.'}
+];
 const TABS=[
  {id:'start',label:'Startseite',icon:'home',color:'#308cff',desc:''},
  {id:'profil',label:'Profil',icon:'user',color:'#b55bfa',desc:'Öffentliche Profildaten, Avatar und Status eines Spielers ansehen.'},
@@ -1217,7 +1365,7 @@ $('#logo').innerHTML=ic('user',42);
 $('#sbBtn').innerHTML=ic('side',18);
 $('#pill').insertAdjacentHTML('afterbegin',ic('search',16));
 $('#feat').innerHTML=TABS.filter(t=>t.desc).map((t,i)=>`<div class="card fcard" data-tab="${t.id}" style="--i:${i}"><span class="ico" style="background:${t.color}">${ic(t.icon,20)}</span><b>${t.label}</b><p>${t.desc}</p></div>`).join('');
-$('#toolPickerCards').innerHTML=TABS.filter(t=>t.desc).map((t,i)=>`<button type="button" class="card fcard launch-card" data-launch-tool="${t.id}" style="--i:${i}"><span class="ico" style="background:${t.color}">${ic(t.icon,20)}</span><b>${t.label}</b><p>${t.desc}</p></button>`).join('');
+$('#toolPickerCards').innerHTML=APP_TOOLS.map((t,i)=>`<button type="button" class="card fcard launch-card" data-launch-tool="${t.id}" style="--i:${i}"><span class="ico" style="background:${t.color}">${ic(t.icon,20)}</span><b>${t.label}</b><p>${t.desc}</p></button>`).join('');
 
 /* ---------- Menüleiste ---------- */
 const MENUS={
@@ -1843,6 +1991,30 @@ function exportProfile(){if(!data.user)return;const payload={user:data.user,user
 function exportItemsCsv(){const rows=[['id','name','type'],...(data.avatar?.assets||[]).map(x=>[x.id,x.name||'',x.assetType?.name||''])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n');downloadBlob(`roblox-items-${data.userId||'avatar'}.csv`,csv,'text/csv;charset=utf-8');notify('CSV exported','Avatar items downloaded.')}
 async function shareProfile(){if(!data.user)return;const url=`https://www.roblox.com/users/${data.userId}/profile`;if(navigator.share){try{await navigator.share({title:`${data.user.displayName||data.user.name} on Roblox`,url})}catch(e){}}else{await copyText(url)}}
 $('#recClear').onclick=clearRecent;
+function usernameStatusLabel(status){return status==='found'?'Profil bestätigt':status==='possible'?'Möglicher Treffer':status==='not_found'?'Kein Profil gefunden':'Nicht eindeutig geprüft'}
+function usernameResultCard(row){
+ const label=usernameStatusLabel(row.status);
+ return `<article class="card username-result-card"><span class="username-result-icon">${ic('ext',17)}</span><div class="username-result-copy"><b>${esc(row.site)}</b><span>${label}</span></div><a href="${esc(row.url)}" target="_blank" rel="noopener noreferrer">Profil öffnen</a></article>`;
+}
+function renderUsernameResults(payload){
+ const rows=payload.results||[],found=rows.filter(x=>x.status==='found'),possible=rows.filter(x=>x.status==='possible'),notFound=rows.filter(x=>x.status==='not_found'),unknown=rows.filter(x=>x.status==='unknown');
+ $('#usernameSearchStatus').textContent=`Prüfung für „${payload.username}“ abgeschlossen · ${found.length} bestätigt · ${possible.length} möglich · ${unknown.length} nicht eindeutig`;
+ const section=(title,list)=>list.length?`<h2 style="margin:18px 0 10px;font-size:16px">${title} (${list.length})</h2><div class="username-results-grid">${list.map(usernameResultCard).join('')}</div>`:'';
+ const all=[...notFound,...unknown];
+ $('#usernameSearchResults').innerHTML=(found.length||possible.length?section('Bestätigte Profile',found)+section('Mögliche Profile',possible):'<div class="state">Keine bestätigten oder möglichen Profile gefunden.</div>')+
+  `<details class="username-details"><summary>Alle ${rows.length} geprüften Websites anzeigen</summary><div class="username-results-grid">${all.map(usernameResultCard).join('')}</div></details>`;
+}
+async function runUsernameSearch(){
+ const name=$('#usernameQuery').value.trim().replace(/^@/,'');
+ if(!/^[A-Za-z0-9_.-]{1,30}$/.test(name)){$('#usernameSearchStatus').textContent='Bitte gib einen gültigen Nutzernamen ein (1–30 Buchstaben, Zahlen, Punkt, Unterstrich oder Bindestrich).';return}
+ const button=$('#usernameSearchButton');button.disabled=true;button.textContent='Prüfe …';
+ $('#usernameSearchStatus').textContent=`Prüfe öffentliche Profile für „${name}“…`;
+ $('#usernameSearchResults').innerHTML='';
+ try{const response=await fetch('/x/username-search?name='+encodeURIComponent(name));const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Suche fehlgeschlagen');renderUsernameResults(payload)}
+ catch(e){$('#usernameSearchStatus').textContent=e.message||'Die Websites konnten gerade nicht geprüft werden.'}
+ finally{button.disabled=false;button.textContent='Suchen'}
+}
+$('#usernameSearchForm').addEventListener('submit',e=>{e.preventDefault();runUsernameSearch()});
 
 /* ---------- Events ---------- */
 document.addEventListener('click',e=>{
@@ -1869,15 +2041,11 @@ document.addEventListener('click',e=>{
  const oc=e.target.closest('[data-outfit]');if(oc){openOutfit(oc.dataset.outfit);return}
  const q=e.target.closest('[data-q]');if(q){showWin();search(q.dataset.q);return}
  const launch=e.target.closest('[data-launch-tool]');if(launch){
-  const id=launch.dataset.launchTool;
-  $('#toolPickerGate').classList.add('dismissed');showWin();
-  if(!data.user&&id!=='favorites'){
-   pendingTool=id;const label=TABS.find(t=>t.id===id)?.label||'Tool';
-   notify('Spieler benötigt','Suche oben nach einem Namen oder einer ID. Danach öffne ich „'+label+'“.');
-   focusSearch();return;
-  }
-  pendingTool=null;showTab(id);return;
+  const id=launch.dataset.launchTool;$('#toolPickerGate').classList.add('dismissed');
+  if(id==='username'){$('#usernameToolScreen').classList.add('show');setTimeout(()=>$('#usernameQuery').focus(),80);return}
+  $('#usernameToolScreen').classList.remove('show');showWin();showTab('start');return;
  }
+ const usernameBack=e.target.closest('#usernameBack');if(usernameBack){$('#usernameToolScreen').classList.remove('show');$('#toolPickerGate').classList.remove('dismissed');return}
  const tb=e.target.closest('[data-tab]');if(tb){
   $('#toolPickerGate').classList.add('dismissed');
   showWin();const id=tb.dataset.tab;
@@ -1976,7 +2144,7 @@ def open_app(url, srv):
 
 # ---------------------------------------------------------------- Start
 def main():
-    parser = argparse.ArgumentParser(description="Run the FIELDKIT Roblox Avatar Finder.")
+    parser = argparse.ArgumentParser(description="Run the FIELDKIT Roblox Avatar Finder and Username Finder.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: localhost)")
     parser.add_argument("--port", type=int, default=PORT, help="Port (default: 8765)")
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically")

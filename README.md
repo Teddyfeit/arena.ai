@@ -1,6 +1,13 @@
-# FIELDKIT Roblox Avatar Finder
+# FIELDKIT — Avatar- und Username-Finder
 
-FIELDKIT enthält nur den vollständigen **Roblox Avatar Finder**: Suche ein Profil nach Roblox-Namen oder Benutzer-ID und erkunde Avatar, Items, Outfits, Spiele, Gruppen, Favoriten und Verlauf. Die Oberfläche nutzt ein animiertes macOS-inspiriertes Liquid-Glass-Design mit anpassbarem Theme, Akzentfarbe, Wallpaper und Glass-Effekten.
+FIELDKIT startet mit einer Auswahl aus genau zwei Tools:
+
+1. **Roblox Avatar Finder** — Roblox-Profile nach Name oder Benutzer-ID suchen und Avatar, Items, Outfits, Spiele, Gruppen, Favoriten und Verlauf erkunden.
+2. **Username Finder** — einen Nutzernamen auf 16 öffentlichen Profilseiten prüfen, darunter GitHub, GitLab, Reddit, npm, Hacker News, Steam, Twitch, YouTube, Instagram, TikTok und X.
+
+Der Username Finder unterscheidet bestätigte Treffer, mögliche Treffer und nicht eindeutig prüfbare Seiten. Viele Plattformen blockieren automatisierte Prüfungen oder liefern keine verlässliche Auskunft; mögliche Treffer sollten manuell geöffnet werden. Es werden nur öffentliche Profilseiten geprüft, ohne Anmeldung oder Umgehung von Schutzmaßnahmen.
+
+Die Oberfläche nutzt ein macOS-inspiriertes Liquid-Glass-Design mit anpassbarem Theme, Akzentfarbe, Wallpaper und Glass-Effekten.
 
 ## Starten
 

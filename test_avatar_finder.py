@@ -50,11 +50,12 @@ class AvatarFinderTests(unittest.TestCase):
                       headers={"Content-Type": "application/json"} if data is not None else {})
         return urlopen(req, timeout=4)
 
-    def test_single_file_entrypoint_runs_and_defaults_to_avatar_finder(self):
+    def test_single_file_entrypoint_runs_with_both_finders(self):
         file = Path(__file__).with_name("tool_hub.py")
         result = subprocess.run([sys.executable, str(file), "--help"], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Roblox Avatar Finder", result.stdout)
+        self.assertIn("Username Finder", result.stdout)
         self.assertNotIn("public lookup tools", result.stdout)
 
     def test_root_and_legacy_avatar_route_serve_same_full_finder(self):
@@ -74,11 +75,26 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertNotIn("Lookup Desk", page)
         self.assertNotIn("20 Lookup-Tools", page)
 
-    def test_health_reports_avatar_finder_only(self):
+    def test_health_reports_both_finder_tools(self):
         with self.request("/health") as response:
             info = json.loads(response.read())
-        self.assertEqual(info["app"], "FIELDKIT Roblox Avatar Finder")
-        self.assertEqual(info["tools"], ["avatar-finder"])
+        self.assertEqual(info["app"], "FIELDKIT Roblox Avatar Finder + Username Finder")
+        self.assertEqual(info["tools"], ["avatar-finder", "username-finder"])
+
+    def test_username_search_returns_public_site_results(self):
+        expected = [{"site": "GitHub", "status": "found", "url": "https://github.com/example"}]
+        with patch.object(tool_hub, "search_public_username", return_value=expected) as search_sites:
+            with self.request("/x/username-search?name=example") as response:
+                result = json.loads(response.read())
+        self.assertEqual(result, {"username": "example", "results": expected})
+        search_sites.assert_called_once_with("example")
+
+    def test_username_search_rejects_invalid_names(self):
+        with patch.object(tool_hub, "search_public_username") as search_sites:
+            with self.assertRaises(HTTPError) as error:
+                self.request("/x/username-search?name=bad%20name")
+        self.assertEqual(error.exception.code, 400)
+        search_sites.assert_not_called()
 
     def test_avatar_design_and_preferences_remain_in_page(self):
         page = tool_hub.PAGE
@@ -88,16 +104,25 @@ class AvatarFinderTests(unittest.TestCase):
         self.assertIn("cycleGlass", page)
         self.assertIn("toggleMotion", page)
 
-    def test_start_screen_offers_existing_roblox_tools_in_current_style(self):
+    def test_initial_picker_offers_only_two_finder_tools(self):
         page = tool_hub.PAGE
-        self.assertIn("<h1>Wähle dein Tool<br><span>für Roblox.</span></h1>", page)
+        self.assertIn("<h1>Roblox-Profil finden<br><span>ganz einfach.</span></h1>", page)
         self.assertIn('id="toolPickerGate" role="dialog" aria-modal="true"', page)
         self.assertIn("Welches Tool möchtest du benutzen?", page)
         self.assertIn('id="toolPickerCards"', page)
         self.assertIn('class="card fcard launch-card" data-launch-tool="${t.id}"', page)
+        self.assertIn("$('#toolPickerCards').innerHTML=APP_TOOLS.map", page)
+        self.assertIn("label:'Roblox Avatar Finder'", page)
+        self.assertIn("label:'Username Finder'", page)
+        tool_choices = page.split("const APP_TOOLS=[", 1)[1].split("];", 1)[0]
+        self.assertEqual(tool_choices.count("{id:"), 2)
+        self.assertGreaterEqual(len(tool_hub.USERNAME_SITES), 15)
+        self.assertIn('id="usernameToolScreen"', page)
+        self.assertIn('id="usernameSearchForm"', page)
+        self.assertIn("runUsernameSearch()", page)
         self.assertIn("$('#toolPickerGate').classList.add('dismissed')", page)
-        self.assertIn("<div class=\"sec\"><span>Tool auswählen</span></div>", page)
-        self.assertIn('class="hero tool-picker-head"', page)
+        self.assertIn("<div class=\"sec\"><span>Was du hier findest</span></div>", page)
+        self.assertIn('class="hero avatar-home-head"', page)
         self.assertLess(page.index('id="feat"'), page.index('id="recentBox"'))
         self.assertIn("renderAll();showTab('start')", page)
         self.assertIn("#t-start #feat{grid-template-columns", page)
