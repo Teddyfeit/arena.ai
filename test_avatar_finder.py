@@ -92,6 +92,10 @@ class AvatarFinderTests(unittest.TestCase):
         page = tool_hub.PAGE
         self.assertIn("<h1>Wähle dein Tool<br><span>für Roblox.</span></h1>", page)
         self.assertIn("<div class=\"sec\"><span>Tool auswählen</span></div>", page)
+        self.assertIn('class="hero tool-picker-head"', page)
+        self.assertLess(page.index('id="feat"'), page.index('id="recentBox"'))
+        self.assertIn("renderAll();showTab('start')", page)
+        self.assertIn("#t-start #feat{grid-template-columns", page)
         self.assertIn("TABS.filter(t=>t.desc).map", page)
         self.assertIn("class=\"card fcard\" data-tab=\"${t.id}\"", page)
         for tool in ("Profil", "Favoriten", "Outfits", "Spiele", "Getragene Items", "Gruppen", "Technische Daten"):
