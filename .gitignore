@@ -1,0 +1,9 @@
+# Local runtime cache from the Python app
+cache.db*
+app_profile/
+__pycache__/
+discord_watchlist.json
+username_ideas.tmp
+.username-ideas-*.tmp
+username_ideas.json
+.discord-watch-*.tmp
